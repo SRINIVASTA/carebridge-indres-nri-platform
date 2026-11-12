@@ -5,16 +5,21 @@ from app.utils.validators import validate_international_phone
 
 
 def render_auth_portal() -> None:
-    """Render Real Sign In, Account Registration (Sign Up), and Quick Demo Login."""
+    """Render Shared Sign In (Customers & Employees), Customer Sign Up, and Quick Demo Login."""
     db = DatabaseService()
     st.markdown("### Sign In or Create Your CareBridge Account")
 
     tab_login, tab_signup, tab_demo = st.tabs(
-        ["🔐 Sign In (Email & Password)", "📝 Create Account (Sign Up)", "⚡ Quick Role Demo"]
+        [
+            "🔐 Sign In (Customers & Employees)",
+            "📝 Create Customer Account (Sign Up)",
+            "⚡ Quick Role Demo",
+        ]
     )
 
-    # TAB 1: Real Password Login
+    # TAB 1: Shared Password Login (Works for NRI Customers, Care Managers, Admins & System Admin)
     with tab_login:
+        st.caption("Sign in with your registered NRI Family email or your System Admin-issued Employee credentials.")
         with st.form("real_login_form"):
             email = st.text_input("Email Address", placeholder="you@example.com")
             password = st.text_input("Password", type="password")
@@ -30,45 +35,41 @@ def render_auth_portal() -> None:
                         st.success(f"Welcome back, {user['full_name']}!")
                         st.rerun()
                     else:
-                        st.error("Invalid email or password. Please try again or create an account.")
-    # TAB 2: Create New Account (Sign Up)
+                        st.error("Invalid email or password. Please try again or create a customer account.")
+
+    # TAB 2: Create New Customer Account (Restricted to NRI Family Role Only)
     with tab_signup:
+        st.caption(
+            "For NRI Family Members booking care for parents in India. "
+            "Employee accounts (Care Managers & Admins) are created exclusively by the System Admin."
+        )
         with st.form("signup_form"):
             col1, col2 = st.columns(2)
             full_name = col1.text_input("Full Name *", placeholder="e.g., Karthik Reddy")
-            role = col2.selectbox(
-                "Account Role *",
-                ["NRI", "CARE_MANAGER", "ADMIN"],
-                format_func=lambda r: {
-                    "NRI": "NRI Family Member (Book Care for Parents)",
-                    "CARE_MANAGER": "Care Manager / Sahayak (India Ground Staff)",
-                    "ADMIN": "Operations Admin",
-                }[r],
-            )
+            email = col2.text_input("Email Address *", placeholder="karthik@example.com")
 
             col3, col4 = st.columns(2)
-            email = col3.text_input("Email Address *", placeholder="karthik@example.com")
-            phone = col4.text_input("Mobile / WhatsApp (E.164) *", placeholder="+14155550199 or +919848012345")
+            phone = col3.text_input("Mobile / WhatsApp (E.164) *", placeholder="+14155550199 or +919848012345")
+            country = col4.selectbox(
+                "Country of Residence",
+                ["USA", "UK", "Canada", "UAE", "Singapore", "Australia", "India"],
+            )
 
             col5, col6 = st.columns(2)
             password = col5.text_input("Create Password * (min 6 chars)", type="password")
             confirm_pw = col6.text_input("Confirm Password *", type="password")
 
             col7, col8 = st.columns(2)
-            country = col7.selectbox(
-                "Country of Residence",
-                ["USA", "UK", "Canada", "UAE", "Singapore", "Australia", "India"],
-            )
-            currency = col8.selectbox("Preferred Billing Currency", ["USD", "INR", "GBP", "EUR"])
-
-            channels = st.multiselect(
+            currency = col7.selectbox("Preferred Billing Currency", ["USD", "INR", "GBP", "EUR"])
+            channels = col8.multiselect(
                 "Preferred Channels for PDF Invoices & Visit Reports",
                 ["EMAIL", "WHATSAPP", "SMS"],
                 default=["EMAIL", "WHATSAPP"],
             )
 
-            create_btn = st.form_submit_button("Create Account & Sign In", type="primary", use_container_width=True)
-
+            create_btn = st.form_submit_button(
+                "Create Customer Account & Sign In", type="primary", use_container_width=True
+            )
             if create_btn:
                 valid_phone, fmt_phone = validate_international_phone(phone)
                 if not full_name.strip() or not email.strip():
@@ -87,14 +88,14 @@ def render_auth_portal() -> None:
                             email=email,
                             password=password,
                             full_name=full_name,
-                            role=role,
+                            role="NRI",  # Locked strictly to Customer (NRI) role
                             phone=fmt_phone,
                             country=country,
                             preferred_currency=currency,
                             preferred_channels=channels,
                         )
-                        login_as_role(role, new_user)
-                        st.success("Account created! Redirecting to your portal...")
+                        login_as_role("NRI", new_user)
+                        st.success("Customer account created! Redirecting to your portal...")
                         st.rerun()
                     except ValueError as exc:
                         st.error(str(exc))
