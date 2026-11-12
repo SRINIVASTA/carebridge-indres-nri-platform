@@ -8,7 +8,8 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from app.utils.currency import calculate_invoice_totals, convert_from_inr, CURRENCY_SYMBOLS
+from app.utils.currency import CURRENCY_SYMBOLS, calculate_invoice_totals, convert_from_inr
+from app.utils.datetime_helper import format_datetime_ist
 
 
 def generate_invoice_pdf(
@@ -21,11 +22,11 @@ def generate_invoice_pdf(
     line_items: List[Dict[str, Any]],
     service_fee_inr: float,
     out_of_pocket_inr: float,
-    issued_at: datetime | None = None,
+    issued_at: datetime | str | None = None,
 ) -> bytes:
     """
-    Generate an itemized, transparent PDF invoice separating CareBridge service fees
-    (subject to 18% GST) from 100% actual out-of-pocket pass-through expenses.
+    Generate an itemized, transparent PDF invoice in IST separating CareBridge
+    service fees (subject to 18% GST) from 100% actual out-of-pocket expenses.
     """
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -48,7 +49,7 @@ def generate_invoice_pdf(
         "SubHeader", parent=styles["Normal"], textColor=slate_dark, fontSize=10, leading=14
     )
 
-    dt = issued_at or datetime.utcnow()
+    formatted_date = format_datetime_ist(issued_at)
     totals = calculate_invoice_totals(service_fee_inr, out_of_pocket_inr)
     curr = currency.upper()
     sym = CURRENCY_SYMBOLS.get(curr, "$")
@@ -58,7 +59,7 @@ def generate_invoice_pdf(
         Paragraph("CareBridge India — Official Tax Invoice & Receipt", title_style),
         Paragraph(
             f"<b>Invoice #:</b> {invoice_number} &nbsp;&nbsp;|&nbsp;&nbsp; "
-            f"<b>Date:</b> {dt.strftime('%d %b %Y, %H:%M UTC')}",
+            f"<b>Issued Date & Time:</b> {formatted_date}",
             sub_style,
         ),
         Spacer(1, 10),
@@ -148,7 +149,7 @@ def generate_visit_vitals_report_pdf(
     vitals: Dict[str, Any],
     notes: str,
 ) -> bytes:
-    """Generate a post-visit Care Manager & Vitals summary PDF report for NRI families."""
+    """Generate a post-visit Care Manager & Vitals summary PDF report with IST timestamp."""
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=18 * mm, leftMargin=18 * mm)
     styles = getSampleStyleSheet()
@@ -159,13 +160,15 @@ def generate_visit_vitals_report_pdf(
     )
     body_style = ParagraphStyle("Body", parent=styles["Normal"], fontSize=10, leading=14)
 
+    formatted_checkin = format_datetime_ist(checkin_time)
+
     elements = [
         Paragraph("CareBridge India — Verified Visit & Vitals Summary", title_style),
         Paragraph(
             f"<b>Parent:</b> {parent_name} ({parent_city})<br/>"
             f"<b>Visit / Task:</b> {visit_title}<br/>"
             f"<b>Care Manager (Sahayak):</b> {care_manager_name}<br/>"
-            f"<b>GPS Check-in:</b> {checkin_time} ({gps_coords})",
+            f"<b>GPS Check-in Date & Time:</b> {formatted_checkin} ({gps_coords})",
             body_style,
         ),
         Spacer(1, 12),
