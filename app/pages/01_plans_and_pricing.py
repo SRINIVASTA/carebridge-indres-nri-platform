@@ -9,7 +9,6 @@ import streamlit as st
 from app.auth.session_manager import init_session_state
 from app.utils.currency import format_currency
 
-st.set_page_config(page_title="Plans & Pricing — CareBridge India", page_icon="💳", layout="wide")
 init_session_state()
 
 curr = st.session_state.get("currency", "USD")
