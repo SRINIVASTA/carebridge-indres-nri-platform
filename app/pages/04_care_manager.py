@@ -1,8 +1,7 @@
-from datetime import datetime
 from pathlib import Path
 import sys
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+ROOT_DIR = Path(__file__).resolve().parents
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
@@ -13,6 +12,7 @@ from app.services.notifications import NotificationDispatcher
 from app.services.pdf_generator import generate_invoice_pdf, generate_visit_vitals_report_pdf
 from app.services.storage import VaultStorageService
 from app.utils.currency import calculate_invoice_totals, convert_from_inr
+from app.utils.datetime_helper import now_ist_str
 from app.utils.validators import is_allowed_file
 
 st.set_page_config(page_title="Care Manager Field Portal — CareBridge", page_icon="🛵", layout="wide")
@@ -24,11 +24,12 @@ notifier = NotificationDispatcher()
 
 st.title("Care Manager (Sahayak) Field Operations Portal")
 st.caption(
-    f"Logged in as **{user['full_name']}** | Police Verification ID: `{user.get('police_clearance_id', 'VERIFIED')}`"
+    f"Logged in as **{user['full_name']}** | Current IST: `{now_ist_str()}` | "
+    f"Police ID: `{user.get('police_clearance_id', 'VERIFIED')}`"
 )
 
-tasks = db.list_tasks("CARE_MANAGER", user["id"])
-parents = db.get_parents_for_nri(user["id"]) if user["role"] == "NRI" else [
+tasks = db.list_tasks("CARE_MANAGER", user["id"]) if user["role"] == "CARE_MANAGER" else db.list_tasks("ADMIN", user["id"])
+all_parents = [
     {**p, "id": p["parent_id"], "full_name": p["parent_name"]}
     for p in db.list_all_parents_with_nri()
 ]
@@ -38,10 +39,13 @@ if not tasks:
     st.info("No assigned field tasks right now.")
     st.stop()
 
-task_map = {f"{t['id']} — {t['title']} [{t['status']}]": t for t in tasks}
+task_map = {f"{t['id']} — {t['title']} ({t['scheduled_at']}) [{t['status']}]": t for t in tasks}
 selected_label = st.selectbox("Select Assigned Visit / Task", list(task_map.keys()))
 task = task_map[selected_label]
-parent = next((p for p in parents if p["id"] == task["parent_id"]), parents[0])
+parent = next(
+    (p for p in all_parents if p["id"] == task["parent_id"]),
+    {"id": task["parent_id"], "full_name": task.get("parent_name", "Parent"), "age": 70, "city": "India", "address": "Registered Address"},
+)
 
 st.info(
     f"**Beneficiary:** {parent['full_name']} ({parent['age']} yrs) | "
@@ -76,7 +80,7 @@ with st.form("field_visit_report_form"):
     )
     visit_notes = st.text_area(
         "Care Manager Field Observations",
-        value=task.get("completion_notes", "Parent is cheerful and active. Vitals logged and medicines handed over."),
+        value=task.get("completion_notes") or "Parent is cheerful and active. Vitals logged and medicines handed over.",
     )
     auto_dispatch = st.checkbox(
         "Auto-generate Visit Report + Itemized Invoice PDFs and send to NRI's available channels",
@@ -90,7 +94,7 @@ with st.form("field_visit_report_form"):
             st.error("Receipt photo/PDF is mandatory whenever out-of-pocket expenses are greater than ₹0.")
             st.stop()
 
-        checkin_ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        checkin_ts = now_ist_str()
         receipt_path = None
         if receipt_file:
             if not is_allowed_file(receipt_file.name):
@@ -103,7 +107,7 @@ with st.form("field_visit_report_form"):
                 receipt_file.type or "application/octet-stream",
             )
 
-        # Log vitals to Health Vault
+        # Log vitals with full IST Date & Time
         vitals_payload = {
             "parent_id": parent["id"],
             "logged_by": user["id"],
@@ -113,7 +117,7 @@ with st.form("field_visit_report_form"):
             "pulse_bpm": pulse,
             "spo2_percent": spo2,
             "notes": visit_notes,
-            "recorded_at": datetime.utcnow().strftime("%Y-%m-%d"),
+            "recorded_at": checkin_ts,
         }
         db.log_vitals(vitals_payload)
 
@@ -131,7 +135,7 @@ with st.form("field_visit_report_form"):
             }
         )
 
-        # Generate Visit Summary PDF & Invoice PDF
+        # Generate Visit Summary PDF & Invoice PDF with IST Date & Time
         visit_pdf = generate_visit_vitals_report_pdf(
             parent_name=parent["full_name"],
             parent_city=parent["city"],
@@ -168,6 +172,7 @@ with st.form("field_visit_report_form"):
             line_items=line_items,
             service_fee_inr=svc_fee,
             out_of_pocket_inr=oop_inr,
+            issued_at=checkin_ts,
         )
 
         visit_path = storage.upload_file(visit_pdf, "visit_reports", f"{task['id']}_report.pdf")
@@ -177,7 +182,7 @@ with st.form("field_visit_report_form"):
         db.save_invoice(
             {
                 "invoice_number": invoice_num,
-                "nri_user_id": nri_recipient["id"],
+                "nri_user_id": task.get("nri_user_id", nri_recipient["id"]),
                 "task_id": task["id"],
                 "currency": nri_curr,
                 "service_fee_inr": svc_fee,
@@ -187,6 +192,7 @@ with st.form("field_visit_report_form"):
                 "total_converted": convert_from_inr(totals["total_inr"], nri_curr),
                 "pdf_storage_path": inv_path,
                 "status": "ISSUED",
+                "created_at": checkin_ts,
             }
         )
 
@@ -209,11 +215,11 @@ with st.form("field_visit_report_form"):
                 signed_pdf_url=signed_inv_url,
             )
             st.success(
-                f"Visit completed & archived! Dispatched PDFs via: "
+                f"Visit completed at **{checkin_ts}**! Dispatched PDFs via: "
                 f"**{', '.join(sent_channels) if sent_channels else 'Vault & Ready for Download'}**."
             )
         else:
-            st.success("Visit report and invoice PDFs generated and stored in vault!")
+            st.success(f"Visit report and invoice PDFs generated at **{checkin_ts}** and stored in vault!")
 
 # Direct Download Buttons after Submission
 if "last_visit_pdf" in st.session_state:
