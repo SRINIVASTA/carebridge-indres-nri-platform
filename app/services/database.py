@@ -121,6 +121,18 @@ class DatabaseService:
                     notes TEXT,
                     recorded_at TEXT
                 );
+
+                CREATE TABLE IF NOT EXISTS staff_audit_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    action TEXT NOT NULL,
+                    target_user_id TEXT NOT NULL,
+                    target_name TEXT NOT NULL,
+                    target_email TEXT NOT NULL,
+                    target_role TEXT NOT NULL,
+                    performed_by TEXT NOT NULL,
+                    details TEXT,
+                    timestamp_ist TEXT NOT NULL
+                );
                 """
             )
 
@@ -350,6 +362,66 @@ class DatabaseService:
                 "UPDATE users SET police_clearance_id = ?, kyc_verified = ? WHERE id = ?",
                 (police_clearance_id, 1 if verified else 0, user_id),
             )
+
+    def log_staff_action(
+        self,
+        action: str,
+        target_user: Dict[str, Any],
+        performed_by: str,
+        details: str = "",
+    ) -> None:
+        """Record employee creation, KYC verification, or deletion in IST audit history."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO staff_audit_logs (
+                    action, target_user_id, target_name, target_email,
+                    target_role, performed_by, details, timestamp_ist
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    action,
+                    target_user.get("id", ""),
+                    target_user.get("full_name", ""),
+                    target_user.get("email", ""),
+                    target_user.get("role", ""),
+                    performed_by,
+                    details,
+                    now_ist_str(),
+                ),
+            )
+
+    def delete_employee_user(self, user_id: str, performed_by: str) -> Dict[str, Any]:
+        """Delete an employee (CARE_MANAGER or ADMIN) and record the deletion in audit history."""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            if not row:
+                raise ValueError("Employee account not found.")
+            target = dict(row)
+            if target["role"] == "SYSTEM_ADMIN":
+                raise ValueError("Master System Admin account cannot be deleted.")
+
+            conn.execute(
+                "UPDATE tasks SET care_manager_id = 'UNASSIGNED' WHERE care_manager_id = ? AND status != 'COMPLETED'",
+                (user_id,),
+            )
+            conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+        self.log_staff_action(
+            action="DELETED_EMPLOYEE",
+            target_user=target,
+            performed_by=performed_by,
+            details=f"Removed {target['role']} login ({target['email']})",
+        )
+        return target
+
+    def list_staff_audit_logs(self) -> List[Dict[str, Any]]:
+        """Return chronological history of all employee additions, KYC updates, and deletions."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM staff_audit_logs ORDER BY id DESC"
+            ).fetchall()
+            return [dict(r) for r in rows]
     def add_parent(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Allow registered NRI users to add their parent's profile with IST timestamp."""
         parent_id = f"par-{uuid.uuid4().hex[:6]}"
