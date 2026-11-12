@@ -1,23 +1,23 @@
 # CareBridge India — NRI Parent Care & Concierge Platform
 
-A cloud-ready Streamlit web application for Non-Resident Indians (NRIs) to manage healthcare, daily errands, emergency support, and property concierge services for their aging parents in India.
+A cloud-ready Streamlit web application for Non-Resident Indians (NRIs) to manage healthcare, daily errands, emergency support, itemized PDF invoicing, and property concierge services for their aging parents in India.
 
 ## About
 
-CareBridge India provides a transparent, real-time caregiving and concierge platform connecting NRIs abroad with verified local Care Managers (*Sahayaks*) in India. Families can subscribe to monthly care plans or book on-demand assistance for hospital visits, banking paperwork, bill payments, and home check-ins with live GPS verification and receipt proofs.
+CareBridge India provides a transparent, real-time caregiving and concierge platform connecting NRIs abroad with verified local Care Managers (*Sahayaks*) in India. Families can subscribe to monthly care plans or book on-demand assistance for hospital visits, banking paperwork, bill payments, and home check-ins with live GPS verification, receipt proofs, and automated PDF visit/invoice reports.
 
-Built and maintained by [T A Srinivas (@SRINIVASTA)](https://github.com), this repository hosts a multi-role Streamlit web gateway, a multi-currency (USD/INR) billing and prepaid expense wallet, an encrypted medical and document vault, and a live Care Manager field reporting portal.
+Built and maintained by [T A Srinivas (@SRINIVASTA)](https://github.com), this repository hosts a multi-role Streamlit web gateway, a multi-currency (USD/INR/GBP/EUR) billing and prepaid expense wallet, a digital medical and document vault, an automated ReportLab PDF invoice/report generator, and a live Care Manager field reporting portal.
 
 ## Modules in this repo
 
 | Module | Description |
 | :--- | :--- |
-| `main.py` | Main Streamlit entry point managing session state, role-based access routing (NRI, Care Manager, Admin), and USD/INR currency switching. |
+| `main.py` | Main Streamlit entry point managing session state, role-based access routing (NRI, Care Manager, Admin), communication preferences, and multi-currency switching. |
 | `01_plans_and_pricing.py` | Displays public monthly subscription tiers (Essential, Complete Medical + Errands, Couple Care) and pay-as-you-go service rate cards. |
-| `02_nri_dashboard.py` | Enables NRIs to schedule medical or household tasks, manage their prepaid INR expense wallet, and trigger 24/7 emergency SOS alerts. |
-| `03_health_vault.py` | Stores encrypted prescriptions, diagnostic lab reports, insurance policies, and chronological vitals logs (BP, blood sugar, pulse). |
-| `04_care_manager.py` | Mobile-responsive field portal for local Care Managers in India to log GPS check-ins, record parent vitals, and upload expense receipts. |
-| `05_admin_ops.py` | Operations panel for verifying ground staff KYC/police clearance, assigning tasks, and auditing out-of-pocket actuals. |
+| `02_nri_dashboard.py` | Enables NRIs to schedule tasks, manage their prepaid INR expense wallet, trigger 24/7 SOS alerts, and download or send itemized PDF invoices. |
+| `03_health_vault.py` | Stores prescriptions, diagnostic lab reports, insurance policies, chronological vitals logs (BP, blood sugar, pulse, SpO2), and exports PDF health summaries. |
+| `04_care_manager.py` | Mobile-responsive field portal for local Care Managers in India to log GPS check-ins, record parent vitals, upload receipts, and auto-dispatch PDF reports. |
+| `05_admin_ops.py` | Operations panel for verifying ground staff KYC/police clearance, settling out-of-pocket actuals, and auditing/re-sending GST PDF invoices. |
 
 ### Architecture & Workflow
 
@@ -25,20 +25,20 @@ Built and maintained by [T A Srinivas (@SRINIVASTA)](https://github.com), this r
 flowchart TD
     subgraph Client_Interface_Layer["NRI Client Layer - Global Web Access"]
         A["main.py<br>Streamlit Multi-Role Gateway"] e1@-->|"Step 1 - Select Plan or Task"| B["01_plans_and_pricing.py<br>USD / INR Subscriptions & Rates"]
-        A e2@-->|"Step 2 - Book Care or SOS"| C["02_nri_dashboard.py<br>Task Scheduler & Expense Wallet"]
+        A e2@-->|"Step 2 - Book Care, Invoice or SOS"| C["02_nri_dashboard.py<br>Task Scheduler, Wallet & PDF Invoices"]
     end
 
     subgraph Ground_Operations_Layer["India Ground Operations Layer"]
-        C e3@-->|"Assigned Task + WhatsApp Alert"| D{"Task Category?"}
-        D e4@-->|"Medical / Hospital Escort"| E["04_care_manager.py<br>Vitals Logger & Prescription Upload"]
+        C e3@-->|"Assigned Task + Alert"| D{"Task Category?"}
+        D e4@-->|"Medical / Hospital Escort"| E["04_care_manager.py<br>Vitals Logger & Receipt Upload"]
         D e5@-->|"Banking / Property / Errand"| E
         E e6@-->|"GPS Check-in + Bill Receipts"| F["05_admin_ops.py<br>Verification & Actuals Settlement"]
     end
 
-    subgraph Storage_and_Compliance_Layer["Cloud Database & Security Layer"]
-        F e7@-->|"Verified Visit Summary"| G["database.py & storage.py<br>Supabase PostgreSQL + S3 Vault"]
-        G e8@-->|"Encrypted Medical Records"| H["03_health_vault.py<br>Live Family Feed & Vitals History"]
-        G e9@-->|"Automated Notification"| I["notifications.py<br>WhatsApp & SMS Family Updates"]
+    subgraph Storage_and_Compliance_Layer["Database, PDF Engine & Communications Layer"]
+        F e7@-->|"Verified Visit & Invoice"| G["database.py & storage.py<br>Zero-Setup SQLite3 + Local/S3 Vault"]
+        G e8@-->|"Vitals & Medical Records"| H["03_health_vault.py<br>Live Family Feed & Health PDF Export"]
+        G e9@-->|"PDF Invoice & Visit Summary"| I["pdf_generator.py & notifications.py<br>ReportLab PDF + Email / WhatsApp / SMS"]
     end
 
     e1@{ animate: true }
@@ -55,8 +55,9 @@ flowchart TD
 ### Key Capabilities
 
 * **Unified Medical & Concierge Care:** Combines routine health monitoring, doctor appointment escorting, and 24/7 emergency hospital support with everyday errands like pension paperwork, utility bills, and property checks.
+* **Itemized PDF Invoices & Visit Reports:** Generates GST-compliant PDF tax invoices and post-visit vitals summary PDFs via ReportLab, with 1-click browser downloads and multi-channel delivery (Email attachments, WhatsApp, and SMS).
 * **Transparent Prepaid Expense Wallet:** Separates service charges from 100% actual out-of-pocket costs (medicines, lab bills, cab fares), backed by mandatory photo receipt uploads before wallet deduction.
-* **Multi-Currency Billing & Cloud Deployment:** Supports international USD/GBP/EUR subscriptions alongside INR billing, built for zero-setup deployment directly from GitHub Web to Streamlit Community Cloud.
+* **Zero-Setup SQLite3 & Cloud Deployment:** Runs out-of-the-box with built-in SQLite3 persistence and supports instant deployment from GitHub to Streamlit Community Cloud.
 
 ## Service Pricing Reference
 
@@ -85,7 +86,7 @@ carebridge-nri-platform/
 │       └── ci-cd.yml                 # Automated linting, unit tests, and security checks on push
 ├── .streamlit/
 │   ├── config.toml                   # Custom medical-teal theme, fonts, and 25 MB upload limit
-│   └── secrets.toml.example          # Template for Supabase, Stripe, Razorpay, and Twilio keys
+│   └── secrets.toml.example          # Template for Stripe, Razorpay, Twilio, SMTP, and S3 keys
 ├── app/
 │   ├── main.py                       # Main entry point, session initialization, and role-based router
 │   ├── assets/
@@ -93,43 +94,41 @@ carebridge-nri-platform/
 │   │   └── styles.css                # Custom CSS overrides for cards, badges, and responsive UI
 │   ├── auth/
 │   │   ├── session_manager.py        # Role-based access control (NRI, Care Manager, Admin)
-│   │   └── login_ui.py               # Secure login, signup, and password reset screens
+│   │   └── login_ui.py               # Role demo access and communication channel preferences
 │   ├── pages/
 │   │   ├── 01_plans_and_pricing.py   # Public USD/INR subscription plans and on-demand rate cards
-│   │   ├── 02_nri_dashboard.py       # Service booking, prepaid wallet balance, and SOS trigger
-│   │   ├── 03_health_vault.py        # Encrypted medical reports, prescriptions, and vitals trends
-│   │   ├── 04_care_manager.py        # Ground staff GPS check-in, visit logging, and receipt upload
-│   │   └── 05_admin_ops.py           # Staff verification (KYC/Police ID), payout, and dispatch panel
+│   │   ├── 02_nri_dashboard.py       # Service booking, prepaid wallet, SOS trigger, & PDF invoices
+│   │   ├── 03_health_vault.py        # Medical reports, vitals trends, & PDF health report export
+│   │   ├── 04_care_manager.py        # Ground staff GPS check-in, receipt upload, & auto-dispatch PDFs
+│   │   └── 05_admin_ops.py           # Staff verification (KYC/Police ID), audit, & invoice ledger
 │   ├── services/
-│   │   ├── database.py               # Supabase / PostgreSQL CRUD operations for users, tasks, and logs
-│   │   ├── storage.py                # AWS S3 / Supabase Bucket handling for receipts and lab PDFs
-│   │   ├── payments.py               # Stripe (International USD/GBP) and Razorpay (INR) integration
-│   │   └── notifications.py          # WhatsApp Business API (Twilio/Gupshup) and SMS SOS alerts
+│   │   ├── database.py               # Zero-setup SQLite3 CRUD operations for parents, tasks, & invoices
+│   │   ├── storage.py                # Local Vault / AWS S3 handling for receipts, lab PDFs, & invoices
+│   │   ├── payments.py               # Stripe (International USD/GBP/EUR) and Razorpay (INR) integration
+│   │   ├── pdf_generator.py          # ReportLab engine for itemized PDF invoices & visit/vitals reports
+│   │   └── notifications.py          # Email (PDF attachment), WhatsApp, and SMS multi-channel dispatch
 │   ├── models/
-│   │   └── schemas.py                # Pydantic data validation models for requests, vitals, and billing
+│   │   └── schemas.py                # Pydantic data validation models for requests, vitals, & invoices
 │   └── utils/
-│       ├── currency.py               # Live USD/INR conversion and receipt calculation helpers
-│       └── validators.py             # Indian phone number, Aadhaar/ID mask, and file type checks
-├── database/
-│   └── migrations/
-│       └── 001_initial_schema.sql    # SQL scripts for tables and Row-Level Security (RLS) policies
+│       ├── currency.py               # Multi-currency conversion and 18% service-only GST math
+│       └── validators.py             # Indian/international phone, Aadhaar mask, & file type checks
 ├── tests/
-│   ├── test_billing.py               # Unit tests for subscription pricing and actuals wallet math
-│   └── test_permissions.py           # Security tests ensuring NRIs only view their own parents' data
-├── .gitignore                        # Excludes .streamlit/secrets.toml, __pycache__, and .env files
+│   ├── test_billing.py               # Unit tests for currency math, GST invoices, & PDF generation
+│   └── test_permissions.py           # Validation tests for phone numbers, Aadhaar masking, & uploads
+├── .gitignore                        # Excludes *.db, local_vault/, secrets.toml, and __pycache__
 ├── Dockerfile                        # Container setup for scalable deployment (AWS ECS / GCP Cloud Run)
-├── pyproject.toml                    # Code formatting (Ruff/Black) and dependency management
+├── pyproject.toml                    # Code formatting (Ruff) and Pytest configuration
 ├── requirements.txt                  # Pinned production Python dependencies
 └── README.md                         # Setup guide, pricing reference, and architecture diagram
 ```
 
 ## Cloud & Local Setup
 
-### 1. Local Development Setup
+### Local Development Setup
 
 ```bash
 # Clone the repository
-git clone https://github.com
+git clone https://github.com/carebridge-nri-platform.git
 cd carebridge-nri-platform
 
 # Create and activate virtual environment
@@ -139,7 +138,7 @@ source venv/bin/activate        # On Windows: venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Copy secrets template and add your keys
+# Copy secrets template and add your keys (optional — SQLite3 works out-of-the-box)
 cp .streamlit/secrets.toml.example .streamlit/secrets.toml
 
 # Launch the application
@@ -147,6 +146,7 @@ streamlit run app/main.py
 ```
 
 Open your browser and navigate to `http://localhost:8501`.
+
 
 ## License
 
