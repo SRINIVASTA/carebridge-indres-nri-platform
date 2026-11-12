@@ -51,6 +51,21 @@ flowchart TD
     e8@{ animate: true }
     e9@{ animate: true }
 ```
+flowchart LR
+    subgraph Onboarding["Account Creation & Provisioning"]
+        SA["SYSTEM_ADMIN<br>(Pre-seeded Master Role)"] -->|"Creates & Deletes Staff"| EMP["Employees<br>(ADMIN & CARE_MANAGER)"]
+        CUST_REG["Public Sign-Up Tab"] -->|"Self-Registration"| NRI["NRI Family Customer<br>(Role Locked to NRI)"]
+    end
+
+    subgraph Gateway["Shared Login & RBAC Routing"]
+        EMP --> LOGIN["main.py / login_ui.py<br>Shared Sign-In Portal"]
+        NRI --> LOGIN
+        SA --> LOGIN
+        LOGIN -->|"SYSTEM_ADMIN"| P_SYS["All Portals + Add/Delete Staff + Audit Logs"]
+        LOGIN -->|"ADMIN"| P_ADM["Admin Ops + Dispatch + KYC + Billing"]
+        LOGIN -->|"CARE_MANAGER"| P_CM["Care Manager Field Portal + Health Vault"]
+        LOGIN -->|"NRI"| P_NRI["NRI Dashboard + Health Vault + Pricing"]
+    end
 
 ### Key Capabilities
 
