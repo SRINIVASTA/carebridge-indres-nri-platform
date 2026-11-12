@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from app.utils.datetime_helper import now_ist_str
 
-DB_PATH = Path(__file__).resolve().parents[2] / "carebridge.db"
+DB_PATH = Path(__file__).resolve().parents / "carebridge.db"
 
 
 class DatabaseService:
@@ -22,6 +22,14 @@ class DatabaseService:
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         return conn
+
+    @staticmethod
+    def _hash_password(password: str, salt: Optional[str] = None) -> str:
+        salt = salt or secrets.token_hex(16)
+        pwd_hash = hashlib.pbkdf2_hmac(
+            "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100_000
+        ).hex()
+        return f"{salt}${pwd_hash}"
 
     def _init_db(self) -> None:
         with self._get_conn() as conn:
@@ -132,9 +140,10 @@ class DatabaseService:
             for col_name, col_def in migrations.items():
                 if col_name not in existing_cols:
                     conn.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}")
+
             # Seed sample parent & wallet if parents table is empty
             cur = conn.execute("SELECT COUNT(*) FROM parents")
-            if cur.fetchone()[0] == 0:
+            if cur.fetchone() == 0:
                 seed_ts = now_ist_str()
                 conn.execute(
                     """
@@ -162,7 +171,7 @@ class DatabaseService:
             admin_cur = conn.execute(
                 "SELECT COUNT(*) FROM users WHERE role = 'SYSTEM_ADMIN'"
             )
-            if admin_cur.fetchone()[0] == 0:
+            if admin_cur.fetchone() == 0:
                 seed_ts = now_ist_str()
                 conn.execute(
                     """
