@@ -125,34 +125,7 @@ carebridge-nri-platform/
 
 ## Cloud & Local Setup
 
-### 1. Deploy via GitHub Web & Streamlit Community Cloud (Recommended)
-
-1. Fork or create a new repository on GitHub and commit the files above (do **not** commit `.streamlit/secrets.toml`).
-2. Sign in to [share.streamlit.io](https://streamlit.io) with your GitHub account and click **New app**.
-3. Select your repository, set the main file path to `app/main.py`, and open **App Settings → Secrets**.
-4. Paste your credentials in TOML format:
-
-```toml
-[supabase]
-url = "https://supabase.co"
-anon_key = "your-supabase-anon-key"
-
-[stripe]
-secret_key = "sk_live_your_stripe_key"
-
-[razorpay]
-key_id = "rzp_live_your_key_id"
-key_secret = "your_razorpay_secret"
-
-[twilio]
-account_sid = "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-auth_token = "your_twilio_auth_token"
-
-[auth]
-cookie_secret = "your_32_character_random_hex_string"
-```
-
-### 2. Local Development Setup
+### 1. Local Development Setup
 
 ```bash
 # Clone the repository
