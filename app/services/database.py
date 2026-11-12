@@ -1,5 +1,8 @@
+import hashlib
 import json
+import secrets
 import sqlite3
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -7,7 +10,7 @@ DB_PATH = Path(__file__).resolve().parents[2] / "carebridge.db"
 
 
 class DatabaseService:
-    """Zero-setup SQLite3 data layer with automatic schema creation & seed data."""
+    """Zero-setup SQLite3 data layer with automatic schema creation, auth & seed data."""
 
     def __init__(self, db_path: Path = DB_PATH) -> None:
         self.db_path = db_path
@@ -22,6 +25,21 @@ class DatabaseService:
         with self._get_conn() as conn:
             conn.executescript(
                 """
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    email TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    full_name TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    phone TEXT NOT NULL,
+                    whatsapp_number TEXT,
+                    preferred_channels TEXT DEFAULT '["EMAIL", "WHATSAPP"]',
+                    country TEXT DEFAULT 'USA',
+                    preferred_currency TEXT DEFAULT 'USD',
+                    kyc_verified INTEGER DEFAULT 0,
+                    police_clearance_id TEXT
+                );
+
                 CREATE TABLE IF NOT EXISTS parents (
                     id TEXT PRIMARY KEY,
                     nri_user_id TEXT NOT NULL,
@@ -112,6 +130,125 @@ class DatabaseService:
                     "INSERT OR IGNORE INTO wallets VALUES (?, ?, ?)",
                     ("usr-nri-101", "COUPLE", 18500.00),
                 )
+    @staticmethod
+    def _hash_password(password: str, salt: Optional[str] = None) -> str:
+        salt = salt or secrets.token_hex(16)
+        pwd_hash = hashlib.pbkdf2_hmac(
+            "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100_000
+        ).hex()
+        return f"{salt}${pwd_hash}"
+
+    def register_user(
+        self,
+        email: str,
+        password: str,
+        full_name: str,
+        role: str,
+        phone: str,
+        country: str = "USA",
+        preferred_currency: str = "USD",
+        preferred_channels: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Create a new user account in SQLite3 and initialize a prepaid wallet if NRI."""
+        clean_email = email.strip().lower()
+        channels = preferred_channels or ["EMAIL", "WHATSAPP"]
+        user_id = f"usr-{uuid.uuid4().hex[:8]}"
+        hashed_pw = self._hash_password(password)
+
+        with self._get_conn() as conn:
+            existing = conn.execute(
+                "SELECT id FROM users WHERE email = ?", (clean_email,)
+            ).fetchone()
+            if existing:
+                raise ValueError("An account with this email already exists. Please sign in.")
+
+            conn.execute(
+                """
+                INSERT INTO users (
+                    id, email, password_hash, full_name, role, phone,
+                    whatsapp_number, preferred_channels, country, preferred_currency, kyc_verified
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    clean_email,
+                    hashed_pw,
+                    full_name.strip(),
+                    role,
+                    phone,
+                    phone,
+                    json.dumps(channels),
+                    country,
+                    preferred_currency,
+                    1 if role == "NRI" else 0,
+                ),
+            )
+            if role == "NRI":
+                conn.execute(
+                    "INSERT OR IGNORE INTO wallets (nri_user_id, plan_tier, balance_inr) VALUES (?, ?, ?)",
+                    (user_id, "PAY_AS_YOU_GO", 0.0),
+                )
+
+        return {
+            "id": user_id,
+            "email": clean_email,
+            "full_name": full_name.strip(),
+            "role": role,
+            "phone": phone,
+            "whatsapp_number": phone,
+            "preferred_channels": channels,
+            "country": country,
+            "preferred_currency": preferred_currency,
+            "kyc_verified": role == "NRI",
+        }
+
+    def authenticate_user(self, email: str, password: str) -> Optional[Dict[str, Any]]:
+        """Verify email and password against SQLite3 users table."""
+        clean_email = email.strip().lower()
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE email = ?", (clean_email,)
+            ).fetchone()
+            if not row:
+                return None
+            stored = row["password_hash"]
+            if "$" not in stored:
+                return None
+            salt, _ = stored.split("$", 1)
+            if self._hash_password(password, salt) != stored:
+                return None
+
+            user = dict(row)
+            user.pop("password_hash", None)
+            user["preferred_channels"] = json.loads(user.get("preferred_channels") or '["EMAIL"]')
+            user["kyc_verified"] = bool(user.get("kyc_verified", 0))
+            return user
+
+    def add_parent(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Allow newly registered NRI users to add their parent's profile."""
+        parent_id = f"par-{uuid.uuid4().hex[:6]}"
+        payload["id"] = parent_id
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO parents (
+                    id, nri_user_id, full_name, age, city, address,
+                    blood_group, emergency_contact_india, medical_conditions
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    parent_id,
+                    payload["nri_user_id"],
+                    payload["full_name"],
+                    int(payload["age"]),
+                    payload["city"],
+                    payload["address"],
+                    payload.get("blood_group", ""),
+                    payload.get("emergency_contact_india", ""),
+                    payload.get("medical_conditions", ""),
+                ),
+            )
+        return payload
 
     def get_parents_for_nri(self, nri_user_id: str) -> List[Dict[str, Any]]:
         with self._get_conn() as conn:
@@ -125,7 +262,7 @@ class DatabaseService:
             row = conn.execute(
                 "SELECT * FROM wallets WHERE nri_user_id = ?", (nri_user_id,)
             ).fetchone()
-            return dict(row) if row else {"plan_tier": "COUPLE", "balance_inr": 18500.0}
+            return dict(row) if row else {"plan_tier": "PAY_AS_YOU_GO", "balance_inr": 0.0}
 
     def update_wallet_balance(self, nri_user_id: str, delta_inr: float) -> float:
         wallet = self.get_wallet(nri_user_id)
