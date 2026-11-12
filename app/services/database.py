@@ -392,3 +392,49 @@ class DatabaseService:
                 "SELECT * FROM vitals_logs WHERE parent_id = ? ORDER BY id ASC", (parent_id,)
             ).fetchall()
             return [dict(r) for r in rows]
+    def list_all_users(self, role: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Return all registered users (or filter by role: NRI, CARE_MANAGER, ADMIN)."""
+        with self._get_conn() as conn:
+            if role:
+                rows = conn.execute(
+                    "SELECT id, email, full_name, role, phone, country, preferred_currency, kyc_verified, police_clearance_id FROM users WHERE role = ?",
+                    (role,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT id, email, full_name, role, phone, country, preferred_currency, kyc_verified, police_clearance_id FROM users"
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def list_all_parents_with_nri(self) -> List[Dict[str, Any]]:
+        """Return every registered parent alongside their linked NRI family member."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    p.id AS parent_id,
+                    p.full_name AS parent_name,
+                    p.age,
+                    p.city,
+                    p.address,
+                    p.blood_group,
+                    p.emergency_contact_india,
+                    p.medical_conditions,
+                    p.nri_user_id,
+                    COALESCE(u.full_name, 'Arjun Sharma (Demo)') AS nri_name,
+                    COALESCE(u.email, 'arjun.sharma@example.com') AS nri_email,
+                    COALESCE(u.phone, '+14155550199') AS nri_phone
+                FROM parents p
+                LEFT JOIN users u ON p.nri_user_id = u.id
+                ORDER BY p.rowid DESC
+                """
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def verify_staff_kyc(self, user_id: str, police_clearance_id: str, verified: bool = True) -> None:
+        """Update Care Manager KYC & Police Clearance status in SQLite3."""
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE users SET police_clearance_id = ?, kyc_verified = ? WHERE id = ?",
+                (police_clearance_id, 1 if verified else 0, user_id),
+            )
