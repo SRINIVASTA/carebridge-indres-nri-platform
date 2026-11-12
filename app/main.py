@@ -1,7 +1,7 @@
 from pathlib import Path
 import sys
 
-ROOT_DIR = Path(__file__).resolve().parents
+ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
@@ -15,8 +15,6 @@ def load_custom_css() -> None:
     css_path = Path(__file__).parent / "assets" / "styles.css"
     if css_path.exists():
         st.markdown(f"<style>{css_path.read_text()}</style>", unsafe_allow_html=True)
-
-
 def render_gateway_home() -> None:
     """Landing / Login view shown when not signed in or on Home."""
     st.title("🩺 CareBridge India — NRI Parent Care & Concierge")
@@ -32,6 +30,8 @@ def render_gateway_home() -> None:
         user = st.session_state["current_user"]
         st.success(f"Signed in as **{user['full_name']}** (`{user['role']}`)")
         st.info("Use the navigation menu on the left to open your role-specific workspace.")
+
+
 def main() -> None:
     st.set_page_config(
         page_title="CareBridge India — NRI Parent Care & Concierge",
@@ -59,13 +59,12 @@ def main() -> None:
             allowed_pages = [nri_page, vault_page, plans_page]
         elif role == "CARE_MANAGER":
             allowed_pages = [cm_page, vault_page]
-        elif role == "ADMIN":
+        elif role in ("ADMIN", "SYSTEM_ADMIN"):
             allowed_pages = [admin_page, cm_page, nri_page, vault_page, plans_page]
         else:
             allowed_pages = [home_page, plans_page]
 
     pg = st.navigation(allowed_pages)
-
     # Sidebar: Currency Switcher, Active Profile & Sign Out
     with st.sidebar:
         st.caption(f"🕒 `{now_ist_str()}`")
