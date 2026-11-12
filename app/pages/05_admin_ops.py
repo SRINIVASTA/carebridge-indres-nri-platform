@@ -14,7 +14,6 @@ from app.services.pdf_generator import generate_invoice_pdf
 from app.utils.currency import calculate_invoice_totals, format_currency
 from app.utils.validators import mask_aadhaar
 
-st.set_page_config(page_title="Admin Operations — CareBridge India", page_icon="🛡️", layout="wide")
 admin = require_role(["ADMIN"])
 
 db = DatabaseService()
