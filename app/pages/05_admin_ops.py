@@ -1,7 +1,7 @@
 from pathlib import Path
 import sys
 
-ROOT_DIR = Path(__file__).resolve().parents
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
@@ -27,7 +27,7 @@ tab_dir, tab_audit, tab_kyc, tab_billing, tab_create_emp = st.tabs(
         "🛵 Task Dispatch & Actuals Audit",
         "🪪 Staff KYC & Police Clearance",
         "🧾 Invoice Ledger & Re-Send",
-        "➕ Create Employee Login",
+        "➕ Manage Employees & History",
     ]
 )
 
@@ -83,12 +83,12 @@ with tab_dir:
                 hide_index=True,
             )
         else:
-            st.caption("Only built-in Demo Staff (`Ravi Kumar`, `Priya Nair`) active. New staff accounts appear here.")
+            st.caption("No staff accounts found.")
+
 # TAB 2: Assign Tasks to Care Managers & Settle Prepaid Wallet Actuals
 with tab_audit:
     st.subheader("Assign Care Managers (Sahayaks) & Audit Out-of-Pocket Receipts")
 
-    # Build available Care Manager pool (registered staff + built-in demo Sahayak)
     cm_pool = db.list_all_users("CARE_MANAGER")
     demo_cm = DEMO_USERS["CARE_MANAGER"]
     if not any(c["id"] == demo_cm["id"] for c in cm_pool):
@@ -109,7 +109,6 @@ with tab_audit:
                     f"Assigned ID: `{t.get('care_manager_id', 'Unassigned')}`"
                 )
 
-                # Care Manager Assignment Selector
                 current_idx = next(
                     (i for i, c in enumerate(cm_pool) if c["id"] == t.get("care_manager_id")), 0
                 )
@@ -134,7 +133,6 @@ with tab_audit:
                     st.success(f"Assigned **{t['id']}** to **{chosen_cm['full_name']}**!")
                     st.rerun()
 
-                # Out-of-Pocket Wallet Settlement
                 c3.write(
                     f"Fee: ₹{float(t.get('service_fee_inr', 0)):,.0f} | "
                     f"Actuals: ₹{float(t.get('out_of_pocket_inr', 0)):,.0f}"
@@ -162,54 +160,44 @@ with tab_audit:
 with tab_kyc:
     st.subheader("Care Manager (Sahayak) Background & Police Clearance")
     registered_cms = db.list_all_users("CARE_MANAGER")
-    staff_options = {f"{s['full_name']} ({s['email']})": s for s in registered_cms}
-    if not staff_options:
-        demo_cm = DEMO_USERS["CARE_MANAGER"]
-        staff_options[f"{demo_cm['full_name']} (Demo)"] = demo_cm
+    if not registered_cms:
+        st.info("No registered Care Managers yet. Create one in the **➕ Manage Employees & History** tab first.")
+    else:
+        staff_options = {f"{s['full_name']} ({s['email']})": s for s in registered_cms}
+        selected_staff_label = st.selectbox("Select Care Manager to Verify", list(staff_options.keys()))
+        cm = staff_options[selected_staff_label]
 
-    selected_staff_label = st.selectbox("Select Care Manager to Verify", list(staff_options.keys()))
-    cm = staff_options[selected_staff_label]
+        with st.form("kyc_verify_form"):
+            staff_name = st.text_input("Care Manager Full Name", value=cm["full_name"])
+            aadhaar_input = st.text_input("12-Digit Aadhaar Number (Stored Masked)", value="451288901234")
+            police_id = st.text_input(
+                "State Police Clearance Certificate ID",
+                value=cm.get("police_clearance_id") or "AP-POL-VSP-88412",
+            )
+            kyc_ok = st.checkbox(
+                "Mark KYC & Police Background Check Verified", value=bool(cm.get("kyc_verified", False))
+            )
 
-    with st.form("kyc_verify_form"):
-        staff_name = st.text_input("Care Manager Full Name", value=cm["full_name"])
-        aadhaar_input = st.text_input("12-Digit Aadhaar Number (Stored Masked)", value="451288901234")
-        police_id = st.text_input(
-            "State Police Clearance Certificate ID",
-            value=cm.get("police_clearance_id") or "AP-POL-VSP-88412",
-        )
-        kyc_ok = st.checkbox(
-            "Mark KYC & Police Background Check Verified", value=bool(cm.get("kyc_verified", False))
-        )
-
-        if st.form_submit_button("Save Verification Status", type="primary"):
-            masked = mask_aadhaar(aadhaar_input)
-            if masked == "INVALID-ID":
-                st.error("Aadhaar number must contain exactly 12 digits.")
-            else:
-                if cm["id"].startswith("usr-cm-201"):
-                    DEMO_USERS["CARE_MANAGER"]["police_clearance_id"] = police_id
-                    DEMO_USERS["CARE_MANAGER"]["kyc_verified"] = kyc_ok
+            if st.form_submit_button("Save Verification Status", type="primary"):
+                masked = mask_aadhaar(aadhaar_input)
+                if masked == "INVALID-ID":
+                    st.error("Aadhaar number must contain exactly 12 digits.")
                 else:
                     db.verify_staff_kyc(cm["id"], police_id, kyc_ok)
+                    db.log_staff_action(
+                        action="KYC_VERIFIED" if kyc_ok else "KYC_REVOKED",
+                        target_user=cm,
+                        performed_by=f"{admin['full_name']} ({admin['email']})",
+                        details=f"Masked ID: {masked} | Police ID: {police_id} | Verified: {kyc_ok}",
+                    )
+                    st.session_state["last_kyc_msg"] = (
+                        f"Updated **{staff_name}** | Masked ID: `{masked}` | "
+                        f"Police Clearance: `{police_id}` | Verified: `{kyc_ok}`"
+                    )
+                    st.rerun()
 
-                st.session_state["last_kyc_msg"] = (
-                    f"Updated **{staff_name}** | Masked ID: `{masked}` | "
-                    f"Police Clearance: `{police_id}` | Verified: `{kyc_ok}`"
-                )
-                st.rerun()
-
-    if st.session_state.get("last_kyc_msg"):
-        st.success(st.session_state["last_kyc_msg"])
-
-    # Live status table right inside Tab 3
-    st.divider()
-    st.markdown("#### Current Care Manager Verification Ledger")
-    current_cms = db.list_all_users("CARE_MANAGER") or [DEMO_USERS["CARE_MANAGER"]]
-    st.dataframe(
-        pd.DataFrame(current_cms)[["id", "full_name", "phone", "kyc_verified", "police_clearance_id"]],
-        use_container_width=True,
-        hide_index=True,
-    )
+        if st.session_state.get("last_kyc_msg"):
+            st.success(st.session_state["last_kyc_msg"])
 # TAB 4: Invoice Ledger & Multi-Channel Dispatch
 with tab_billing:
     st.subheader("Issued Invoices — Download or Re-Dispatch to NRI")
@@ -272,61 +260,122 @@ with tab_billing:
                     )
                     st.success(f"Dispatched via: {', '.join(channels) if channels else 'SMTP/Twilio not configured'}")
 
-# TAB 5: System Admin Employee Provisioning
+# TAB 5: System Admin Employee Management (Add, Delete & Audit History)
 with tab_create_emp:
-    st.subheader("Provision New Employee Account & Access Rights")
+    st.subheader("Provision or Remove Employee Accounts & View History")
     if admin.get("role") != "SYSTEM_ADMIN":
-        st.warning("🔒 Restricted: Only the **System Admin** (`SYSTEM_ADMIN`) can create new employee logins.")
+        st.warning("🔒 Restricted: Only the **System Admin** (`SYSTEM_ADMIN`) can add or delete employee logins.")
     else:
-        st.caption(
-            "Create login credentials for field Care Managers or Operations Admins. "
-            "Employees sign in via the main Home / Sign In tab."
-        )
-        with st.form("sysadmin_create_emp_form", clear_on_submit=True):
-            c1, c2 = st.columns(2)
-            emp_name = c1.text_input("Employee Full Name *", placeholder="e.g., Suresh Naidu")
-            emp_role = c2.selectbox(
-                "Assign Role & Usage Rights *",
-                ["CARE_MANAGER", "ADMIN"],
-                format_func=lambda r: {
-                    "CARE_MANAGER": "Care Manager / Sahayak (Field Portal + Health Vault)",
-                    "ADMIN": "Operations Admin (Dispatch, KYC Audit, Billing & Portals)",
-                }[r],
+        col_add, col_del = st.columns([1.4, 1.0])
+
+        # Left Column: Add Employee
+        with col_add:
+            st.markdown("#### ➕ Create New Employee Login")
+            with st.form("sysadmin_create_emp_form", clear_on_submit=True):
+                c1, c2 = st.columns(2)
+                emp_name = c1.text_input("Employee Full Name *", placeholder="e.g., Suresh Naidu")
+                emp_role = c2.selectbox(
+                    "Assign Role & Usage Rights *",
+                    ["CARE_MANAGER", "ADMIN"],
+                    format_func=lambda r: {
+                        "CARE_MANAGER": "Care Manager / Sahayak (Field Portal + Vault)",
+                        "ADMIN": "Operations Admin (Dispatch, KYC, Billing)",
+                    }[r],
+                )
+
+                c3, c4 = st.columns(2)
+                emp_email = c3.text_input("Employee Email (Login ID) *", placeholder="suresh@carebridge.in")
+                emp_phone = c4.text_input("Mobile / WhatsApp (E.164) *", placeholder="+919848012345")
+
+                c5, c6 = st.columns(2)
+                emp_pw = c5.text_input("Temporary Password * (min 6 chars)", type="password")
+                police_id = c6.text_input("Police Clearance ID (Optional)", placeholder="AP-POL-VSP-99102")
+
+                if st.form_submit_button("Create Employee Login", type="primary", use_container_width=True):
+                    valid_phone, fmt_phone = validate_international_phone(emp_phone)
+                    if not emp_name.strip() or not emp_email.strip():
+                        st.error("Employee name and email are required.")
+                    elif len(emp_pw) < 6:
+                        st.error("Temporary password must be at least 6 characters.")
+                    elif not valid_phone:
+                        st.error(fmt_phone)
+                    else:
+                        try:
+                            new_emp = db.register_user(
+                                email=emp_email,
+                                password=emp_pw,
+                                full_name=emp_name,
+                                role=emp_role,
+                                phone=fmt_phone,
+                                country="India",
+                                preferred_currency="INR",
+                                preferred_channels=["EMAIL", "WHATSAPP"],
+                            )
+                            if police_id.strip():
+                                db.verify_staff_kyc(new_emp["id"], police_id.strip(), verified=True)
+
+                            db.log_staff_action(
+                                action="CREATED_EMPLOYEE",
+                                target_user=new_emp,
+                                performed_by=f"{admin['full_name']} ({admin['email']})",
+                                details=f"Role: {emp_role} | Police ID: {police_id.strip() or 'Pending'}",
+                            )
+                            st.success(f"✅ Created **{emp_role}** login for **{emp_name}** (`{emp_email}`).")
+                            st.rerun()
+                        except ValueError as exc:
+                            st.error(str(exc))
+
+        # Right Column: Delete Employee
+        with col_del:
+            st.markdown("#### 🗑️ Delete Employee Login")
+            deletable_staff = db.list_all_users("CARE_MANAGER") + db.list_all_users("ADMIN")
+            if not deletable_staff:
+                st.info("No employee accounts available to delete.")
+            else:
+                del_map = {
+                    f"{u['full_name']} [{u['role']}] — {u['email']}": u for u in deletable_staff
+                }
+                selected_del_label = st.selectbox("Select Employee to Remove", list(del_map.keys()))
+                target_emp = del_map[selected_del_label]
+                st.caption(f"User ID: `{target_emp['id']}` | Phone: `{target_emp['phone']}`")
+
+                confirm_del = st.checkbox(
+                    f"Confirm permanent deletion of {target_emp['full_name']}",
+                    key="confirm_emp_delete",
+                )
+                if st.button("Delete Employee Account", type="secondary", use_container_width=True):
+                    if not confirm_del:
+                        st.warning("Please check the confirmation box before deleting.")
+                    else:
+                        try:
+                            removed = db.delete_employee_user(
+                                target_emp["id"],
+                                performed_by=f"{admin['full_name']} ({admin['email']})",
+                            )
+                            st.success(f"🗑️ Deleted **{removed['full_name']}** (`{removed['email']}`) and logged to history.")
+                            st.rerun()
+                        except ValueError as exc:
+                            st.error(str(exc))
+
+        # Bottom Section: Complete Employee Audit History
+        st.divider()
+        st.markdown("#### 📜 Employee Creation, KYC & Deletion History (IST)")
+        audit_logs = db.list_staff_audit_logs()
+        if audit_logs:
+            st.dataframe(
+                pd.DataFrame(audit_logs)[
+                    [
+                        "timestamp_ist",
+                        "action",
+                        "target_name",
+                        "target_email",
+                        "target_role",
+                        "details",
+                        "performed_by",
+                    ]
+                ],
+                use_container_width=True,
+                hide_index=True,
             )
-
-            c3, c4 = st.columns(2)
-            emp_email = c3.text_input("Employee Email (Login ID) *", placeholder="suresh@carebridge.in")
-            emp_phone = c4.text_input("Mobile / WhatsApp (E.164) *", placeholder="+919848012345")
-
-            c5, c6 = st.columns(2)
-            emp_pw = c5.text_input("Temporary Password * (min 6 chars)", type="password")
-            police_id = c6.text_input("Police Clearance ID (Optional)", placeholder="AP-POL-VSP-99102")
-
-            if st.form_submit_button("Create Employee Login", type="primary", use_container_width=True):
-                valid_phone, fmt_phone = validate_international_phone(emp_phone)
-                if not emp_name.strip() or not emp_email.strip():
-                    st.error("Employee name and email are required.")
-                elif len(emp_pw) < 6:
-                    st.error("Temporary password must be at least 6 characters.")
-                elif not valid_phone:
-                    st.error(fmt_phone)
-                else:
-                    try:
-                        new_emp = db.register_user(
-                            email=emp_email,
-                            password=emp_pw,
-                            full_name=emp_name,
-                            role=emp_role,
-                            phone=fmt_phone,
-                            country="India",
-                            preferred_currency="INR",
-                            preferred_channels=["EMAIL", "WHATSAPP"],
-                        )
-                        if police_id.strip():
-                            db.verify_staff_kyc(new_emp["id"], police_id.strip(), verified=True)
-                        st.success(
-                            f"✅ Created **{emp_role}** login for **{emp_name}** (`{emp_email}`). "
-                            f"Share these credentials so they can sign in on the Home / Sign In screen."
-                        )
-                    except ValueError as exc:
-                        st.error(str(exc))
+        else:
+            st.caption("No employee actions recorded yet. Created, verified, or deleted staff will appear here.")
