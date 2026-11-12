@@ -153,6 +153,11 @@ class DatabaseService:
                     "medical_conditions": "TEXT",
                     "created_at": "TEXT",
                 },
+                "wallets": {
+                    "plan_tier": "TEXT DEFAULT 'PAY_AS_YOU_GO'",
+                    "balance_inr": "REAL DEFAULT 0.0",
+                    "updated_at": "TEXT",
+                },
                 "tasks": {
                     "parent_name": "TEXT",
                     "care_manager_id": "TEXT",
@@ -177,6 +182,16 @@ class DatabaseService:
                     "status": "TEXT DEFAULT 'PAID'",
                     "dispatched_channels": "TEXT DEFAULT '[]'",
                     "created_at": "TEXT",
+                },
+                "vitals_logs": {
+                    "logged_by": "TEXT",
+                    "systolic_bp": "INTEGER",
+                    "diastolic_bp": "INTEGER",
+                    "blood_sugar_mgdl": "INTEGER",
+                    "pulse_bpm": "INTEGER",
+                    "spo2_percent": "INTEGER",
+                    "notes": "TEXT",
+                    "recorded_at": "TEXT",
                 },
             }
 
