@@ -5,14 +5,14 @@ import sqlite3
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
 from app.utils.datetime_helper import now_ist_str
 
-
-DB_PATH = Path(__file__).resolve().parents[2] / "carebridge.db"
+DB_PATH = Path(__file__).resolve().parents / "carebridge.db"
 
 
 class DatabaseService:
-    """Zero-setup SQLite3 data layer with automatic schema creation, auth & seed data."""
+    """Zero-setup SQLite3 data layer with IST timestamps, auth & seed data."""
 
     def __init__(self, db_path: Path = DB_PATH) -> None:
         self.db_path = db_path
@@ -39,7 +39,8 @@ class DatabaseService:
                     country TEXT DEFAULT 'USA',
                     preferred_currency TEXT DEFAULT 'USD',
                     kyc_verified INTEGER DEFAULT 0,
-                    police_clearance_id TEXT
+                    police_clearance_id TEXT,
+                    created_at TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS parents (
@@ -51,13 +52,15 @@ class DatabaseService:
                     address TEXT NOT NULL,
                     blood_group TEXT,
                     emergency_contact_india TEXT,
-                    medical_conditions TEXT
+                    medical_conditions TEXT,
+                    created_at TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS wallets (
                     nri_user_id TEXT PRIMARY KEY,
                     plan_tier TEXT DEFAULT 'COUPLE',
-                    balance_inr REAL DEFAULT 18500.00
+                    balance_inr REAL DEFAULT 18500.00,
+                    updated_at TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS tasks (
@@ -78,7 +81,8 @@ class DatabaseService:
                     out_of_pocket_inr REAL DEFAULT 0.0,
                     receipt_url TEXT,
                     receipt_verified INTEGER DEFAULT 0,
-                    completion_notes TEXT
+                    completion_notes TEXT,
+                    created_at TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS invoices (
@@ -93,7 +97,8 @@ class DatabaseService:
                     total_converted REAL NOT NULL,
                     pdf_storage_path TEXT,
                     status TEXT DEFAULT 'PAID',
-                    dispatched_channels TEXT DEFAULT '[]'
+                    dispatched_channels TEXT DEFAULT '[]',
+                    created_at TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS vitals_logs (
@@ -111,10 +116,11 @@ class DatabaseService:
                 """
             )
             cur = conn.execute("SELECT COUNT(*) FROM parents")
-            if cur.fetchone()[0] == 0:
+            if cur.fetchone() == 0:
+                seed_ts = now_ist_str()
                 conn.execute(
                     """
-                    INSERT INTO parents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO parents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         "par-01",
@@ -126,11 +132,12 @@ class DatabaseService:
                         "O+",
                         "+919848099887",
                         "Type 2 Diabetes, Mild Hypertension",
+                        seed_ts,
                     ),
                 )
                 conn.execute(
-                    "INSERT OR IGNORE INTO wallets VALUES (?, ?, ?)",
-                    ("usr-nri-101", "COUPLE", 18500.00),
+                    "INSERT OR IGNORE INTO wallets VALUES (?, ?, ?, ?)",
+                    ("usr-nri-101", "COUPLE", 18500.00, seed_ts),
                 )
     @staticmethod
     def _hash_password(password: str, salt: Optional[str] = None) -> str:
@@ -151,11 +158,12 @@ class DatabaseService:
         preferred_currency: str = "USD",
         preferred_channels: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Create a new user account in SQLite3 and initialize a prepaid wallet if NRI."""
+        """Create a new user account in SQLite3 with IST registration timestamp."""
         clean_email = email.strip().lower()
         channels = preferred_channels or ["EMAIL", "WHATSAPP"]
         user_id = f"usr-{uuid.uuid4().hex[:8]}"
         hashed_pw = self._hash_password(password)
+        created_ts = now_ist_str()
 
         with self._get_conn() as conn:
             existing = conn.execute(
@@ -168,8 +176,9 @@ class DatabaseService:
                 """
                 INSERT INTO users (
                     id, email, password_hash, full_name, role, phone,
-                    whatsapp_number, preferred_channels, country, preferred_currency, kyc_verified
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    whatsapp_number, preferred_channels, country, preferred_currency,
+                    kyc_verified, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     user_id,
@@ -183,12 +192,13 @@ class DatabaseService:
                     country,
                     preferred_currency,
                     1 if role == "NRI" else 0,
+                    created_ts,
                 ),
             )
             if role == "NRI":
                 conn.execute(
-                    "INSERT OR IGNORE INTO wallets (nri_user_id, plan_tier, balance_inr) VALUES (?, ?, ?)",
-                    (user_id, "PAY_AS_YOU_GO", 0.0),
+                    "INSERT OR IGNORE INTO wallets (nri_user_id, plan_tier, balance_inr, updated_at) VALUES (?, ?, ?, ?)",
+                    (user_id, "PAY_AS_YOU_GO", 0.0, created_ts),
                 )
 
         return {
@@ -202,6 +212,7 @@ class DatabaseService:
             "country": country,
             "preferred_currency": preferred_currency,
             "kyc_verified": role == "NRI",
+            "created_at": created_ts,
         }
 
     def authenticate_user(self, email: str, password: str) -> Optional[Dict[str, Any]]:
@@ -226,17 +237,49 @@ class DatabaseService:
             user["kyc_verified"] = bool(user.get("kyc_verified", 0))
             return user
 
+    def list_all_users(self, role: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Return all registered users with IST registration timestamps."""
+        with self._get_conn() as conn:
+            if role:
+                rows = conn.execute(
+                    """
+                    SELECT id, email, full_name, role, phone, country, preferred_currency,
+                           kyc_verified, police_clearance_id, created_at
+                    FROM users WHERE role = ? ORDER BY rowid DESC
+                    """,
+                    (role,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT id, email, full_name, role, phone, country, preferred_currency,
+                           kyc_verified, police_clearance_id, created_at
+                    FROM users ORDER BY rowid DESC
+                    """
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def verify_staff_kyc(self, user_id: str, police_clearance_id: str, verified: bool = True) -> None:
+        """Update Care Manager KYC & Police Clearance status in SQLite3."""
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE users SET police_clearance_id = ?, kyc_verified = ? WHERE id = ?",
+                (police_clearance_id, 1 if verified else 0, user_id),
+            )
+
     def add_parent(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Allow newly registered NRI users to add their parent's profile."""
+        """Allow registered NRI users to add their parent's profile with IST timestamp."""
         parent_id = f"par-{uuid.uuid4().hex[:6]}"
+        created_ts = now_ist_str()
         payload["id"] = parent_id
+        payload["created_at"] = created_ts
         with self._get_conn() as conn:
             conn.execute(
                 """
                 INSERT INTO parents (
                     id, nri_user_id, full_name, age, city, address,
-                    blood_group, emergency_contact_india, medical_conditions
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    blood_group, emergency_contact_india, medical_conditions, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     parent_id,
@@ -248,6 +291,7 @@ class DatabaseService:
                     payload.get("blood_group", ""),
                     payload.get("emergency_contact_india", ""),
                     payload.get("medical_conditions", ""),
+                    created_ts,
                 ),
             )
         return payload
@@ -255,16 +299,41 @@ class DatabaseService:
     def get_parents_for_nri(self, nri_user_id: str) -> List[Dict[str, Any]]:
         with self._get_conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM parents WHERE nri_user_id = ?", (nri_user_id,)
+                "SELECT * FROM parents WHERE nri_user_id = ? ORDER BY rowid DESC", (nri_user_id,)
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def list_all_parents_with_nri(self) -> List[Dict[str, Any]]:
+        """Return every registered parent alongside their linked NRI family member."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    p.id AS parent_id,
+                    p.full_name AS parent_name,
+                    p.age,
+                    p.city,
+                    p.address,
+                    p.blood_group,
+                    p.emergency_contact_india,
+                    p.medical_conditions,
+                    p.created_at,
+                    p.nri_user_id,
+                    COALESCE(u.full_name, 'Arjun Sharma (Demo)') AS nri_name,
+                    COALESCE(u.email, 'arjun.sharma@example.com') AS nri_email,
+                    COALESCE(u.phone, '+14155550199') AS nri_phone
+                FROM parents p
+                LEFT JOIN users u ON p.nri_user_id = u.id
+                ORDER BY p.rowid DESC
+                """
+            ).fetchall()
+            return [dict(r) for r in rows]
     def get_wallet(self, nri_user_id: str) -> Dict[str, Any]:
         with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT * FROM wallets WHERE nri_user_id = ?", (nri_user_id,)
             ).fetchone()
-            return dict(row) if row else {"plan_tier": "PAY_AS_YOU_GO", "balance_inr": 0.0}
+            return dict(row) if row else {"plan_tier": "PAY_AS_YOU_GO", "balance_inr": 0.0, "updated_at": now_ist_str()}
 
     def update_wallet_balance(self, nri_user_id: str, delta_inr: float) -> float:
         wallet = self.get_wallet(nri_user_id)
@@ -273,22 +342,25 @@ class DatabaseService:
             raise ValueError("Insufficient prepaid wallet balance.")
         with self._get_conn() as conn:
             conn.execute(
-                "UPDATE wallets SET balance_inr = ? WHERE nri_user_id = ?",
-                (new_balance, nri_user_id),
+                "UPDATE wallets SET balance_inr = ?, updated_at = ? WHERE nri_user_id = ?",
+                (new_balance, now_ist_str(), nri_user_id),
             )
         return new_balance
+
     def create_task(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        created_ts = now_ist_str()
         with self._get_conn() as conn:
-            count = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+            count = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()
             task_id = payload.get("id") or f"TSK-{1001 + count}"
             payload["id"] = task_id
+            payload["created_at"] = created_ts
             conn.execute(
                 """
                 INSERT INTO tasks (
                     id, nri_user_id, parent_id, parent_name, care_manager_id,
                     category, title, instructions, scheduled_at, status,
-                    service_fee_inr, out_of_pocket_inr
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    service_fee_inr, out_of_pocket_inr, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task_id,
@@ -303,9 +375,18 @@ class DatabaseService:
                     payload.get("status", "ASSIGNED"),
                     float(payload.get("service_fee_inr", 0.0)),
                     float(payload.get("out_of_pocket_inr", 0.0)),
+                    created_ts,
                 ),
             )
         return payload
+
+    def assign_task_to_staff(self, task_id: str, care_manager_id: str) -> None:
+        """Assign or reassign a care task to a specific Care Manager (Sahayak)."""
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE tasks SET care_manager_id = ?, status = 'ASSIGNED' WHERE id = ?",
+                (care_manager_id, task_id),
+            )
 
     def list_tasks(self, role: str, user_id: str) -> List[Dict[str, Any]]:
         with self._get_conn() as conn:
@@ -323,14 +404,16 @@ class DatabaseService:
 
     def save_invoice(self, invoice_payload: Dict[str, Any]) -> Dict[str, Any]:
         channels_json = json.dumps(invoice_payload.get("dispatched_channels", []))
+        created_ts = invoice_payload.get("created_at") or now_ist_str()
+        invoice_payload["created_at"] = created_ts
         with self._get_conn() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO invoices (
                     invoice_number, nri_user_id, task_id, currency, service_fee_inr,
                     out_of_pocket_inr, gst_inr, total_inr, total_converted,
-                    pdf_storage_path, status, dispatched_channels
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    pdf_storage_path, status, dispatched_channels, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     invoice_payload["invoice_number"],
@@ -345,6 +428,7 @@ class DatabaseService:
                     invoice_payload.get("pdf_storage_path"),
                     invoice_payload.get("status", "PAID"),
                     channels_json,
+                    created_ts,
                 ),
             )
         return invoice_payload
@@ -366,6 +450,8 @@ class DatabaseService:
             return results
 
     def log_vitals(self, vitals_payload: Dict[str, Any]) -> Dict[str, Any]:
+        recorded_ts = vitals_payload.get("recorded_at") or now_ist_str()
+        vitals_payload["recorded_at"] = recorded_ts
         with self._get_conn() as conn:
             conn.execute(
                 """
@@ -383,7 +469,7 @@ class DatabaseService:
                     vitals_payload.get("pulse_bpm"),
                     vitals_payload.get("spo2_percent"),
                     vitals_payload.get("notes", ""),
-                    vitals_payload.get("recorded_at"),
+                    recorded_ts,
                 ),
             )
         return vitals_payload
@@ -394,56 +480,3 @@ class DatabaseService:
                 "SELECT * FROM vitals_logs WHERE parent_id = ? ORDER BY id ASC", (parent_id,)
             ).fetchall()
             return [dict(r) for r in rows]
-    def list_all_users(self, role: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Return all registered users (or filter by role: NRI, CARE_MANAGER, ADMIN)."""
-        with self._get_conn() as conn:
-            if role:
-                rows = conn.execute(
-                    "SELECT id, email, full_name, role, phone, country, preferred_currency, kyc_verified, police_clearance_id FROM users WHERE role = ?",
-                    (role,),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT id, email, full_name, role, phone, country, preferred_currency, kyc_verified, police_clearance_id FROM users"
-                ).fetchall()
-            return [dict(r) for r in rows]
-
-    def list_all_parents_with_nri(self) -> List[Dict[str, Any]]:
-        """Return every registered parent alongside their linked NRI family member."""
-        with self._get_conn() as conn:
-            rows = conn.execute(
-                """
-                SELECT
-                    p.id AS parent_id,
-                    p.full_name AS parent_name,
-                    p.age,
-                    p.city,
-                    p.address,
-                    p.blood_group,
-                    p.emergency_contact_india,
-                    p.medical_conditions,
-                    p.nri_user_id,
-                    COALESCE(u.full_name, 'Arjun Sharma (Demo)') AS nri_name,
-                    COALESCE(u.email, 'arjun.sharma@example.com') AS nri_email,
-                    COALESCE(u.phone, '+14155550199') AS nri_phone
-                FROM parents p
-                LEFT JOIN users u ON p.nri_user_id = u.id
-                ORDER BY p.rowid DESC
-                """
-            ).fetchall()
-            return [dict(r) for r in rows]
-
-    def verify_staff_kyc(self, user_id: str, police_clearance_id: str, verified: bool = True) -> None:
-        """Update Care Manager KYC & Police Clearance status in SQLite3."""
-        with self._get_conn() as conn:
-            conn.execute(
-                "UPDATE users SET police_clearance_id = ?, kyc_verified = ? WHERE id = ?",
-                (police_clearance_id, 1 if verified else 0, user_id),
-            )
-    def assign_task_to_staff(self, task_id: str, care_manager_id: str) -> None:
-        """Assign or reassign a care task to a specific Care Manager (Sahayak)."""
-        with self._get_conn() as conn:
-            conn.execute(
-                "UPDATE tasks SET care_manager_id = ?, status = 'ASSIGNED' WHERE id = ?",
-                (care_manager_id, task_id),
-            )
