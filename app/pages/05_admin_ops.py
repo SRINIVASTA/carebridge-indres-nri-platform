@@ -20,12 +20,12 @@ admin = require_role(["ADMIN"])
 db = DatabaseService()
 notifier = NotificationDispatcher()
 
-st.title("Admin Operations, Member Directory & Invoice Console")
+st.title("Admin Operations, Member Directory & Dispatch Console")
 
 tab_dir, tab_audit, tab_kyc, tab_billing = st.tabs(
     [
         "👥 Members, Parents & Staff Directory",
-        "✅ Task & Actuals Audit",
+        "🛵 Task Dispatch & Actuals Audit",
         "🪪 Staff KYC & Police Clearance",
         "🧾 Invoice Ledger & Re-Send",
     ]
@@ -81,31 +81,71 @@ with tab_dir:
         else:
             st.caption("Only built-in Demo Staff (`Ravi Kumar`, `Priya Nair`) active. New staff signups appear here.")
 
-# TAB 2: Audit Tasks & Settle Prepaid Wallet Actuals
+# TAB 2: Assign Tasks to Care Managers & Settle Prepaid Wallet Actuals
 with tab_audit:
-    st.subheader("Verify Field Receipts & Settle Wallet Deductions")
-    all_tasks = db.list_tasks("ADMIN", admin["id"])
-    for t in all_tasks:
-        with st.container(border=True):
-            c1, c2, c3 = st.columns([3, 2, 1.5])
-            c1.markdown(f"**{t['id']} — {t['title']}** (`{t['status']}`)")
-            c1.caption(f"Parent: {t.get('parent_name', 'N/A')} | Scheduled: {t['scheduled_at']}")
-            c2.write(f"Service Fee: ₹{float(t.get('service_fee_inr', 0)):,.2f}")
-            c2.write(f"Out-of-Pocket: ₹{float(t.get('out_of_pocket_inr', 0)):,.2f}")
+    st.subheader("Assign Care Managers (Sahayaks) & Audit Out-of-Pocket Receipts")
 
-            if t.get("out_of_pocket_inr", 0) > 0 and not t.get("wallet_settled"):
-                if c3.button("Approve & Deduct Wallet", key=f"settle_{t['id']}", type="primary"):
-                    try:
-                        new_bal = db.update_wallet_balance(
-                            t["nri_user_id"], -float(t["out_of_pocket_inr"])
-                        )
-                        t["wallet_settled"] = True
-                        t["receipt_verified"] = True
-                        st.success(f"Settled ₹{t['out_of_pocket_inr']:,.2f}. Remaining NRI wallet: ₹{new_bal:,.2f}")
-                    except ValueError as exc:
-                        st.error(str(exc))
-            else:
-                c3.success("Verified / Settled" if t.get("wallet_settled") else "No Pending Actuals")
+    # Build available Care Manager pool (registered staff + built-in demo Sahayak)
+    cm_pool = db.list_all_users("CARE_MANAGER")
+    demo_cm = DEMO_USERS["CARE_MANAGER"]
+    if not any(c["id"] == demo_cm["id"] for c in cm_pool):
+        cm_pool.append(demo_cm)
+    cm_map = {f"{c['full_name']} ({c['phone']})": c for c in cm_pool}
+    cm_labels = list(cm_map.keys())
+
+    all_tasks = db.list_tasks("ADMIN", admin["id"])
+    if not all_tasks:
+        st.info("No tasks booked yet.")
+    else:
+        for t in all_tasks:
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([2.8, 2.2, 1.8])
+                c1.markdown(f"**{t['id']} — {t['title']}** (`{t['status']}`)")
+                c1.caption(
+                    f"Parent: {t.get('parent_name', 'N/A')} | Scheduled: {t['scheduled_at']} | "
+                    f"Assigned ID: `{t.get('care_manager_id', 'Unassigned')}`"
+                )
+
+                # Care Manager Assignment Selector
+                current_idx = next(
+                    (i for i, c in enumerate(cm_pool) if c["id"] == t.get("care_manager_id")), 0
+                )
+                chosen_cm_label = c2.selectbox(
+                    "Assign Sahayak",
+                    cm_labels,
+                    index=current_idx,
+                    key=f"cm_sel_{t['id']}",
+                    label_visibility="collapsed",
+                )
+                if c2.button("Assign & Alert Sahayak", key=f"assign_btn_{t['id']}", use_container_width=True):
+                    chosen_cm = cm_map[chosen_cm_label]
+                    db.assign_task_to_staff(t["id"], chosen_cm["id"])
+                    notifier.dispatch_to_available_channels(
+                        recipient=chosen_cm,
+                        subject=f"New CareBridge Assignment: {t['id']}",
+                        summary_text=(
+                            f"Task '{t['title']}' for {t.get('parent_name', 'Parent')} "
+                            f"scheduled at {t['scheduled_at']} has been assigned to you."
+                        ),
+                    )
+                    st.success(f"Assigned **{t['id']}** to **{chosen_cm['full_name']}**!")
+                    st.rerun()
+
+                # Out-of-Pocket Wallet Settlement
+                c3.write(f"Fee: ₹{float(t.get('service_fee_inr', 0)):,.0f} | Actuals: ₹{float(t.get('out_of_pocket_inr', 0)):,.0f}")
+                if t.get("out_of_pocket_inr", 0) > 0 and not t.get("wallet_settled"):
+                    if c3.button("Approve & Deduct Wallet", key=f"settle_{t['id']}", type="primary", use_container_width=True):
+                        try:
+                            new_bal = db.update_wallet_balance(
+                                t["nri_user_id"], -float(t["out_of_pocket_inr"])
+                            )
+                            t["wallet_settled"] = True
+                            t["receipt_verified"] = True
+                            st.success(f"Settled ₹{t['out_of_pocket_inr']:,.2f}. Wallet: ₹{new_bal:,.2f}")
+                        except ValueError as exc:
+                            st.error(str(exc))
+                else:
+                    c3.caption("✅ Verified / No Pending Actuals")
 # TAB 3: Ground Staff KYC & Police Verification
 with tab_kyc:
     st.subheader("Care Manager (Sahayak) Background & Police Clearance")
