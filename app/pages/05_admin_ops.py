@@ -12,21 +12,22 @@ from app.services.database import DatabaseService
 from app.services.notifications import NotificationDispatcher
 from app.services.pdf_generator import generate_invoice_pdf
 from app.utils.currency import calculate_invoice_totals, format_currency
-from app.utils.validators import mask_aadhaar
+from app.utils.validators import mask_aadhaar, validate_international_phone
 
-admin = require_role(["ADMIN"])
+admin = require_role(["ADMIN", "SYSTEM_ADMIN"])
 
 db = DatabaseService()
 notifier = NotificationDispatcher()
 
 st.title("Admin Operations, Member Directory & Dispatch Console")
 
-tab_dir, tab_audit, tab_kyc, tab_billing = st.tabs(
+tab_dir, tab_audit, tab_kyc, tab_billing, tab_create_emp = st.tabs(
     [
         "👥 Members, Parents & Staff Directory",
         "🛵 Task Dispatch & Actuals Audit",
         "🪪 Staff KYC & Police Clearance",
         "🧾 Invoice Ledger & Re-Send",
+        "➕ Create Employee Login",
     ]
 )
 
@@ -70,7 +71,11 @@ with tab_dir:
 
     with col_staff:
         st.subheader("All Care Managers (Sahayaks) & Admins")
-        staff_list = db.list_all_users("CARE_MANAGER") + db.list_all_users("ADMIN")
+        staff_list = (
+            db.list_all_users("CARE_MANAGER")
+            + db.list_all_users("ADMIN")
+            + db.list_all_users("SYSTEM_ADMIN")
+        )
         if staff_list:
             st.dataframe(
                 pd.DataFrame(staff_list)[["id", "full_name", "role", "phone", "kyc_verified", "police_clearance_id"]],
@@ -78,8 +83,7 @@ with tab_dir:
                 hide_index=True,
             )
         else:
-            st.caption("Only built-in Demo Staff (`Ravi Kumar`, `Priya Nair`) active. New staff signups appear here.")
-
+            st.caption("Only built-in Demo Staff (`Ravi Kumar`, `Priya Nair`) active. New staff accounts appear here.")
 # TAB 2: Assign Tasks to Care Managers & Settle Prepaid Wallet Actuals
 with tab_audit:
     st.subheader("Assign Care Managers (Sahayaks) & Audit Out-of-Pocket Receipts")
@@ -131,9 +135,17 @@ with tab_audit:
                     st.rerun()
 
                 # Out-of-Pocket Wallet Settlement
-                c3.write(f"Fee: ₹{float(t.get('service_fee_inr', 0)):,.0f} | Actuals: ₹{float(t.get('out_of_pocket_inr', 0)):,.0f}")
+                c3.write(
+                    f"Fee: ₹{float(t.get('service_fee_inr', 0)):,.0f} | "
+                    f"Actuals: ₹{float(t.get('out_of_pocket_inr', 0)):,.0f}"
+                )
                 if t.get("out_of_pocket_inr", 0) > 0 and not t.get("wallet_settled"):
-                    if c3.button("Approve & Deduct Wallet", key=f"settle_{t['id']}", type="primary", use_container_width=True):
+                    if c3.button(
+                        "Approve & Deduct Wallet",
+                        key=f"settle_{t['id']}",
+                        type="primary",
+                        use_container_width=True,
+                    ):
                         try:
                             new_bal = db.update_wallet_balance(
                                 t["nri_user_id"], -float(t["out_of_pocket_inr"])
@@ -145,6 +157,7 @@ with tab_audit:
                             st.error(str(exc))
                 else:
                     c3.caption("✅ Verified / No Pending Actuals")
+
 # TAB 3: Ground Staff KYC & Police Verification
 with tab_kyc:
     st.subheader("Care Manager (Sahayak) Background & Police Clearance")
@@ -164,7 +177,9 @@ with tab_kyc:
             "State Police Clearance Certificate ID",
             value=cm.get("police_clearance_id") or "AP-POL-VSP-88412",
         )
-        kyc_ok = st.checkbox("Mark KYC & Police Background Check Verified", value=bool(cm.get("kyc_verified", True)))
+        kyc_ok = st.checkbox(
+            "Mark KYC & Police Background Check Verified", value=bool(cm.get("kyc_verified", True))
+        )
 
         if st.form_submit_button("Save Verification Status", type="primary"):
             masked = mask_aadhaar(aadhaar_input)
@@ -177,7 +192,6 @@ with tab_kyc:
                     f"Updated **{staff_name}** | Masked ID: `{masked}` | "
                     f"Police Clearance: `{police_id}` | Verified: `{kyc_ok}`"
                 )
-
 # TAB 4: Invoice Ledger & Multi-Channel Dispatch
 with tab_billing:
     st.subheader("Issued Invoices — Download or Re-Dispatch to NRI")
@@ -239,3 +253,62 @@ with tab_billing:
                         pdf_filename=f"{inv['invoice_number']}.pdf",
                     )
                     st.success(f"Dispatched via: {', '.join(channels) if channels else 'SMTP/Twilio not configured'}")
+
+# TAB 5: System Admin Employee Provisioning
+with tab_create_emp:
+    st.subheader("Provision New Employee Account & Access Rights")
+    if admin.get("role") != "SYSTEM_ADMIN":
+        st.warning("🔒 Restricted: Only the **System Admin** (`SYSTEM_ADMIN`) can create new employee logins.")
+    else:
+        st.caption(
+            "Create login credentials for field Care Managers or Operations Admins. "
+            "Employees sign in via the main Home / Sign In tab."
+        )
+        with st.form("sysadmin_create_emp_form", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            emp_name = c1.text_input("Employee Full Name *", placeholder="e.g., Suresh Naidu")
+            emp_role = c2.selectbox(
+                "Assign Role & Usage Rights *",
+                ["CARE_MANAGER", "ADMIN"],
+                format_func=lambda r: {
+                    "CARE_MANAGER": "Care Manager / Sahayak (Field Portal + Health Vault)",
+                    "ADMIN": "Operations Admin (Dispatch, KYC Audit, Billing & Portals)",
+                }[r],
+            )
+
+            c3, c4 = st.columns(2)
+            emp_email = c3.text_input("Employee Email (Login ID) *", placeholder="suresh@carebridge.in")
+            emp_phone = c4.text_input("Mobile / WhatsApp (E.164) *", placeholder="+919848012345")
+
+            c5, c6 = st.columns(2)
+            emp_pw = c5.text_input("Temporary Password * (min 6 chars)", type="password")
+            police_id = c6.text_input("Police Clearance ID (Optional)", placeholder="AP-POL-VSP-99102")
+
+            if st.form_submit_button("Create Employee Login", type="primary", use_container_width=True):
+                valid_phone, fmt_phone = validate_international_phone(emp_phone)
+                if not emp_name.strip() or not emp_email.strip():
+                    st.error("Employee name and email are required.")
+                elif len(emp_pw) < 6:
+                    st.error("Temporary password must be at least 6 characters.")
+                elif not valid_phone:
+                    st.error(fmt_phone)
+                else:
+                    try:
+                        new_emp = db.register_user(
+                            email=emp_email,
+                            password=emp_pw,
+                            full_name=emp_name,
+                            role=emp_role,
+                            phone=fmt_phone,
+                            country="India",
+                            preferred_currency="INR",
+                            preferred_channels=["EMAIL", "WHATSAPP"],
+                        )
+                        if police_id.strip():
+                            db.verify_staff_kyc(new_emp["id"], police_id.strip(), verified=True)
+                        st.success(
+                            f"✅ Created **{emp_role}** login for **{emp_name}** (`{emp_email}`). "
+                            f"Share these credentials so they can sign in on the Home / Sign In screen."
+                        )
+                    except ValueError as exc:
+                        st.error(str(exc))
