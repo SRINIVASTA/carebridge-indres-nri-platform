@@ -1,0 +1,15 @@
+streamlit
+pydantic
+supabase
+pandas
+plotly
+requests
+stripe
+razorpay
+twilio
+boto3
+reportlab
+python-dotenv
+cryptography
+pytest
+ruff
