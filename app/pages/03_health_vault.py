@@ -22,7 +22,10 @@ db = DatabaseService()
 storage = VaultStorageService()
 notifier = NotificationDispatcher()
 
-parents = db.get_parents_for_nri("usr-nri-101")
+parents = db.get_parents_for_nri(user["id"]) if user["role"] == "NRI" else [
+    {**p, "id": p["parent_id"], "full_name": p["parent_name"]}
+    for p in db.list_all_parents_with_nri()
+]
 parent_map = {f"{p['full_name']} (Age {p['age']}, {p['city']})": p for p in parents}
 
 st.title("Encrypted Health & Document Vault")
