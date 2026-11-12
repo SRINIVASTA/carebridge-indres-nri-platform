@@ -438,3 +438,10 @@ class DatabaseService:
                 "UPDATE users SET police_clearance_id = ?, kyc_verified = ? WHERE id = ?",
                 (police_clearance_id, 1 if verified else 0, user_id),
             )
+    def assign_task_to_staff(self, task_id: str, care_manager_id: str) -> None:
+        """Assign or reassign a care task to a specific Care Manager (Sahayak)."""
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE tasks SET care_manager_id = ?, status = 'ASSIGNED' WHERE id = ?",
+                (care_manager_id, task_id),
+            )
