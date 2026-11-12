@@ -124,22 +124,60 @@ class DatabaseService:
                 """
             )
 
-            existing_cols = {
-                row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()
+            # Auto-migrate missing columns across existing SQLite tables
+            table_migrations = {
+                "users": {
+                    "whatsapp_number": "TEXT",
+                    "preferred_channels": "TEXT DEFAULT '[\"EMAIL\", \"WHATSAPP\"]'",
+                    "country": "TEXT DEFAULT 'USA'",
+                    "preferred_currency": "TEXT DEFAULT 'USD'",
+                    "kyc_verified": "INTEGER DEFAULT 0",
+                    "police_clearance_id": "TEXT",
+                    "created_at": "TEXT",
+                },
+                "parents": {
+                    "blood_group": "TEXT",
+                    "emergency_contact_india": "TEXT",
+                    "medical_conditions": "TEXT",
+                    "created_at": "TEXT",
+                },
+                "tasks": {
+                    "parent_name": "TEXT",
+                    "care_manager_id": "TEXT",
+                    "instructions": "TEXT",
+                    "gps_lat": "REAL",
+                    "gps_lng": "REAL",
+                    "checkin_time": "TEXT",
+                    "service_fee_inr": "REAL DEFAULT 0.0",
+                    "out_of_pocket_inr": "REAL DEFAULT 0.0",
+                    "receipt_url": "TEXT",
+                    "receipt_verified": "INTEGER DEFAULT 0",
+                    "completion_notes": "TEXT",
+                    "created_at": "TEXT",
+                },
+                "invoices": {
+                    "task_id": "TEXT",
+                    "currency": "TEXT DEFAULT 'USD'",
+                    "service_fee_inr": "REAL DEFAULT 0.0",
+                    "out_of_pocket_inr": "REAL DEFAULT 0.0",
+                    "gst_inr": "REAL DEFAULT 0.0",
+                    "pdf_storage_path": "TEXT",
+                    "status": "TEXT DEFAULT 'PAID'",
+                    "dispatched_channels": "TEXT DEFAULT '[]'",
+                    "created_at": "TEXT",
+                },
             }
-            migrations = {
-                "whatsapp_number": "TEXT",
-                "preferred_channels": "TEXT DEFAULT '[\"EMAIL\", \"WHATSAPP\"]'",
-                "country": "TEXT DEFAULT 'USA'",
-                "preferred_currency": "TEXT DEFAULT 'USD'",
-                "kyc_verified": "INTEGER DEFAULT 0",
-                "police_clearance_id": "TEXT",
-                "created_at": "TEXT",
-            }
-            for col_name, col_def in migrations.items():
-                if col_name not in existing_cols:
-                    conn.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}")
 
+            for table_name, cols in table_migrations.items():
+                existing_cols = {
+                    row["name"]
+                    for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+                }
+                for col_name, col_def in cols.items():
+                    if col_name not in existing_cols:
+                        conn.execute(
+                            f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_def}"
+                        )
             cur = conn.execute("SELECT COUNT(*) AS cnt FROM parents").fetchone()
             if cur["cnt"] == 0:
                 seed_ts = now_ist_str()
@@ -191,6 +229,7 @@ class DatabaseService:
                         seed_ts,
                     ),
                 )
+
     def register_user(
         self,
         email: str,
