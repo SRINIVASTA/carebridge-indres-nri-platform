@@ -2,7 +2,7 @@ from datetime import datetime
 from pathlib import Path
 import sys
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+ROOT_DIR = Path(__file__).resolve().parents
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
@@ -14,6 +14,7 @@ from app.services.payments import PaymentGatewayService
 from app.services.pdf_generator import generate_invoice_pdf
 from app.services.storage import VaultStorageService
 from app.utils.currency import calculate_invoice_totals, convert_from_inr, format_currency
+from app.utils.datetime_helper import now_ist_str
 from app.utils.validators import validate_indian_phone
 
 st.set_page_config(page_title="NRI Family Dashboard — CareBridge", page_icon="🏠", layout="wide")
@@ -39,7 +40,8 @@ with k2:
     st.metric("Active Care Plan", wallet.get("plan_tier", "PAY_AS_YOU_GO"))
 with k3:
     if st.button("🚨 TRIGGER 24/7 EMERGENCY SOS", type="primary", use_container_width=True):
-        target_parent = parents[0] if parents else {"id": "par-01", "full_name": "Parent", "city": "India"}
+        target_parent = parents if parents else {"id": "par-01", "full_name": "Parent", "city": "India"}
+        sos_ts = now_ist_str()
         sos_task = {
             "nri_user_id": user["id"],
             "parent_id": target_parent["id"],
@@ -48,7 +50,7 @@ with k3:
             "category": "EMERGENCY_SOS",
             "title": f"EMERGENCY SOS — {target_parent['full_name']}",
             "instructions": "Immediate ambulance & hospital triage dispatch requested by NRI family.",
-            "scheduled_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+            "scheduled_at": sos_ts,
             "status": "SOS_ACTIVE",
             "service_fee_inr": 0.0,
             "out_of_pocket_inr": 0.0,
@@ -57,10 +59,10 @@ with k3:
         channels = notifier.dispatch_to_available_channels(
             recipient=user,
             subject="URGENT: CareBridge 24/7 SOS Activated",
-            summary_text=f"Emergency dispatch triggered for {target_parent['full_name']} in {target_parent['city']}. Sahayak team alerted.",
+            summary_text=f"Emergency dispatch triggered at {sos_ts} for {target_parent['full_name']} in {target_parent['city']}. Sahayak team alerted.",
         )
         st.error(
-            f"SOS Alert Dispatched! Ground response team notified. Confirmation sent via: "
+            f"SOS Alert Dispatched at **{sos_ts}**! Ground response team notified. Confirmation sent via: "
             f"{', '.join(channels) if channels else 'In-App Priority Queue'}."
         )
 
@@ -136,12 +138,13 @@ with tab_book:
                 placeholder="Carry previous prescription folder; arrange wheelchair at entrance.",
             )
             col_d, col_t, col_fee = st.columns(3)
-            visit_date = col_d.date_input("Preferred Date")
-            visit_time = col_t.time_input("Preferred Time")
+            visit_date = col_d.date_input("Preferred Date (IST)")
+            visit_time = col_t.time_input("Preferred Time (IST)")
             est_fee_inr = col_fee.number_input("Estimated Service Fee (INR)", min_value=500.0, max_value=10000.0, value=1200.0, step=100.0)
 
             if st.form_submit_button("Confirm & Assign Care Manager", type="primary"):
                 chosen_parent = parent_map[selected_label]
+                scheduled_str = datetime.combine(visit_date, visit_time).strftime("%d %b %Y, %I:%M %p IST")
                 new_task = {
                     "nri_user_id": user["id"],
                     "parent_id": chosen_parent["id"],
@@ -150,18 +153,19 @@ with tab_book:
                     "category": category,
                     "title": title or f"{category.replace('_', ' ').title()} Visit",
                     "instructions": instructions,
-                    "scheduled_at": f"{visit_date} {visit_time}",
+                    "scheduled_at": scheduled_str,
                     "status": "ASSIGNED",
                     "service_fee_inr": est_fee_inr,
                     "out_of_pocket_inr": 0.0,
                 }
                 db.create_task(new_task)
-                st.success("Care task booked and assigned to Senior Care Manager (Ravi Kumar)!")
+                st.success(f"Care task booked for **{scheduled_str}** and assigned to Senior Care Manager!")
                 st.rerun()
 
     st.markdown("### Recent & Active Care Tasks")
     for t in tasks:
         with st.expander(f"[{t['status']}] {t['title']} — {t.get('parent_name', '')} ({t['scheduled_at']})"):
+            st.caption(f"Booked On: {t.get('created_at', t['scheduled_at'])}")
             st.write(f"**Instructions:** {t.get('instructions', 'N/A')}")
             st.write(
                 f"**Service Fee:** {format_currency(float(t.get('service_fee_inr', 0)), curr)} | "
@@ -181,7 +185,7 @@ with tab_invoices:
     if not tasks:
         st.info("No tasks available to invoice yet.")
     else:
-        task_options = {f"{t['id']} — {t['title']} ({t['status']})": t for t in tasks}
+        task_options = {f"{t['id']} — {t['title']} ({t['scheduled_at']})": t for t in tasks}
         chosen_task_key = st.selectbox("Select Care Visit / Task for Invoice PDF", list(task_options.keys()))
         sel_task = task_options[chosen_task_key]
 
