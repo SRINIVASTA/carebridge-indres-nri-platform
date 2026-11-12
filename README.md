@@ -67,6 +67,8 @@ flowchart LR
         LOGIN -->|"NRI"| P_NRI["NRI Dashboard + Health Vault + Pricing"]
     end
 
+```
+
 ### Key Capabilities
 
 * **Unified Medical & Concierge Care:** Combines routine health monitoring, doctor appointment escorting, and 24/7 emergency hospital support with everyday errands like pension paperwork, utility bills, and property checks.
