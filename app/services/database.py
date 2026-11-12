@@ -115,8 +115,9 @@ class DatabaseService:
                 );
                 """
             )
+            # Seed sample parent & wallet if parents table is empty
             cur = conn.execute("SELECT COUNT(*) FROM parents")
-            if cur.fetchone() == 0:
+            if cur.fetchone()[0] == 0:
                 seed_ts = now_ist_str()
                 conn.execute(
                     """
@@ -139,6 +140,37 @@ class DatabaseService:
                     "INSERT OR IGNORE INTO wallets VALUES (?, ?, ?, ?)",
                     ("usr-nri-101", "COUPLE", 18500.00, seed_ts),
                 )
+
+            # Seed default SYSTEM_ADMIN account if none exists
+            admin_cur = conn.execute(
+                "SELECT COUNT(*) FROM users WHERE role = 'SYSTEM_ADMIN'"
+            )
+            if admin_cur.fetchone()[0] == 0:
+                seed_ts = now_ist_str()
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO users (
+                        id, email, password_hash, full_name, role, phone,
+                        whatsapp_number, preferred_channels, country,
+                        preferred_currency, kyc_verified, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "usr-sysadmin-01",
+                        "sysadmin@carebridge.in",
+                        self._hash_password("SysAdmin@123"),
+                        "Master System Admin",
+                        "SYSTEM_ADMIN",
+                        "+919848000001",
+                        "+919848000001",
+                        '["EMAIL", "WHATSAPP"]',
+                        "India",
+                        "INR",
+                        1,
+                        seed_ts,
+                    ),
+                )
+
     @staticmethod
     def _hash_password(password: str, salt: Optional[str] = None) -> str:
         salt = salt or secrets.token_hex(16)
@@ -164,6 +196,7 @@ class DatabaseService:
         user_id = f"usr-{uuid.uuid4().hex[:8]}"
         hashed_pw = self._hash_password(password)
         created_ts = now_ist_str()
+        is_verified = role in ("NRI", "SYSTEM_ADMIN", "ADMIN")
 
         with self._get_conn() as conn:
             existing = conn.execute(
@@ -191,7 +224,7 @@ class DatabaseService:
                     json.dumps(channels),
                     country,
                     preferred_currency,
-                    1 if role == "NRI" else 0,
+                    1 if is_verified else 0,
                     created_ts,
                 ),
             )
@@ -211,7 +244,7 @@ class DatabaseService:
             "preferred_channels": channels,
             "country": country,
             "preferred_currency": preferred_currency,
-            "kyc_verified": role == "NRI",
+            "kyc_verified": is_verified,
             "created_at": created_ts,
         }
 
@@ -266,7 +299,6 @@ class DatabaseService:
                 "UPDATE users SET police_clearance_id = ?, kyc_verified = ? WHERE id = ?",
                 (police_clearance_id, 1 if verified else 0, user_id),
             )
-
     def add_parent(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Allow registered NRI users to add their parent's profile with IST timestamp."""
         parent_id = f"par-{uuid.uuid4().hex[:6]}"
@@ -328,6 +360,7 @@ class DatabaseService:
                 """
             ).fetchall()
             return [dict(r) for r in rows]
+
     def get_wallet(self, nri_user_id: str) -> Dict[str, Any]:
         with self._get_conn() as conn:
             row = conn.execute(
@@ -350,7 +383,7 @@ class DatabaseService:
     def create_task(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         created_ts = now_ist_str()
         with self._get_conn() as conn:
-            count = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()
+            count = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
             task_id = payload.get("id") or f"TSK-{1001 + count}"
             payload["id"] = task_id
             payload["created_at"] = created_ts
