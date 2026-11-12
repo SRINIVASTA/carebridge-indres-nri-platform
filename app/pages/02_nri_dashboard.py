@@ -2,7 +2,7 @@ from datetime import datetime
 from pathlib import Path
 import sys
 
-ROOT_DIR = Path(__file__).resolve().parents
+ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
@@ -14,6 +14,7 @@ from app.services.payments import PaymentGatewayService
 from app.services.pdf_generator import generate_invoice_pdf
 from app.services.storage import VaultStorageService
 from app.utils.currency import calculate_invoice_totals, convert_from_inr, format_currency
+from app.utils.validators import validate_indian_phone
 
 st.set_page_config(page_title="NRI Family Dashboard — CareBridge", page_icon="🏠", layout="wide")
 user = require_role(["NRI", "ADMIN"])
@@ -35,7 +36,7 @@ k1, k2, k3 = st.columns([2, 2, 1.5])
 with k1:
     st.metric("Prepaid INR Expense Wallet", format_currency(float(wallet.get("balance_inr", 0)), curr))
 with k2:
-    st.metric("Active Care Plan", wallet.get("plan_tier", "COUPLE"))
+    st.metric("Active Care Plan", wallet.get("plan_tier", "PAY_AS_YOU_GO"))
 with k3:
     if st.button("🚨 TRIGGER 24/7 EMERGENCY SOS", type="primary", use_container_width=True):
         target_parent = parents[0] if parents else {"id": "par-01", "full_name": "Parent", "city": "India"}
@@ -63,6 +64,48 @@ with k3:
             f"{', '.join(channels) if channels else 'In-App Priority Queue'}."
         )
 
+# Add Parent Expander (Auto-expanded if a newly registered NRI has 0 parents)
+with st.expander("👨‍👩‍👧 Register / Add Parent Profile in India", expanded=(len(parents) == 0)):
+    with st.form("add_parent_form"):
+        p1, p2, p3 = st.columns([2, 1, 1.5])
+        p_name = p1.text_input("Parent's Full Name *", placeholder="e.g., Sri Venkata Subba Rao")
+        p_age = p2.number_input("Age *", min_value=45, max_value=120, value=70)
+        p_city = p3.text_input("City in India *", placeholder="e.g., Visakhapatnam / Hyderabad")
+
+        p_address = st.text_input("Complete Residential Address *", placeholder="Flat/House No., Street, Landmark, PIN")
+
+        p4, p5, p6 = st.columns([1, 1.5, 2])
+        p_blood = p4.selectbox("Blood Group", ["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-", "Unknown"])
+        p_phone = p5.text_input("Parent / Local Emergency Phone (+91)", placeholder="+919848012345")
+        p_cond = p6.text_input("Known Medical Conditions", placeholder="e.g., Hypertension, Diabetes")
+
+        if st.form_submit_button("Save Parent Profile", type="primary"):
+            if not p_name.strip() or not p_city.strip() or not p_address.strip():
+                st.error("Parent name, city, and residential address are required.")
+            else:
+                fmt_in_phone = p_phone.strip()
+                if fmt_in_phone:
+                    ok_in, res_phone = validate_indian_phone(fmt_in_phone)
+                    if not ok_in:
+                        st.error(res_phone)
+                        st.stop()
+                    fmt_in_phone = res_phone
+
+                db.add_parent(
+                    {
+                        "nri_user_id": user["id"],
+                        "full_name": p_name.strip(),
+                        "age": p_age,
+                        "city": p_city.strip(),
+                        "address": p_address.strip(),
+                        "blood_group": p_blood,
+                        "emergency_contact_india": fmt_in_phone,
+                        "medical_conditions": p_cond.strip(),
+                    }
+                )
+                st.success(f"Added **{p_name.strip()}** to your family care profile!")
+                st.rerun()
+
 st.divider()
 
 tab_book, tab_invoices, tab_wallet = st.tabs(
@@ -71,47 +114,50 @@ tab_book, tab_invoices, tab_wallet = st.tabs(
 # TAB 1: Schedule a Task
 with tab_book:
     st.subheader("Book Medical Escort, Vitals Check, or Concierge Errand")
-    with st.form("schedule_task_form"):
-        parent_map = {f"{p['full_name']} ({p['city']})": p for p in parents}
-        selected_label = st.selectbox("Select Parent", list(parent_map.keys()))
-        category = st.selectbox(
-            "Service Category",
-            [
-                "MEDICAL_ESCORT",
-                "VITALS_CHECK",
-                "BANK_GOV_ERRAND",
-                "AIRPORT_ASSIST",
-                "PROPERTY_CHECK",
-            ],
-        )
-        title = st.text_input("Task Title", placeholder="e.g., Quarterly Eye Checkup at LV Prasad Eye Institute")
-        instructions = st.text_area(
-            "Detailed Instructions for Care Manager (Sahayak)",
-            placeholder="Carry previous prescription folder; arrange wheelchair at entrance.",
-        )
-        col_d, col_t, col_fee = st.columns(3)
-        visit_date = col_d.date_input("Preferred Date")
-        visit_time = col_t.time_input("Preferred Time")
-        est_fee_inr = col_fee.number_input("Estimated Service Fee (INR)", min_value=500.0, max_value=10000.0, value=1200.0, step=100.0)
+    if not parents:
+        st.warning("Please register at least one parent profile above before booking a care visit.")
+    else:
+        with st.form("schedule_task_form"):
+            parent_map = {f"{p['full_name']} ({p['city']})": p for p in parents}
+            selected_label = st.selectbox("Select Parent", list(parent_map.keys()))
+            category = st.selectbox(
+                "Service Category",
+                [
+                    "MEDICAL_ESCORT",
+                    "VITALS_CHECK",
+                    "BANK_GOV_ERRAND",
+                    "AIRPORT_ASSIST",
+                    "PROPERTY_CHECK",
+                ],
+            )
+            title = st.text_input("Task Title", placeholder="e.g., Quarterly Eye Checkup at LV Prasad Eye Institute")
+            instructions = st.text_area(
+                "Detailed Instructions for Care Manager (Sahayak)",
+                placeholder="Carry previous prescription folder; arrange wheelchair at entrance.",
+            )
+            col_d, col_t, col_fee = st.columns(3)
+            visit_date = col_d.date_input("Preferred Date")
+            visit_time = col_t.time_input("Preferred Time")
+            est_fee_inr = col_fee.number_input("Estimated Service Fee (INR)", min_value=500.0, max_value=10000.0, value=1200.0, step=100.0)
 
-        if st.form_submit_button("Confirm & Assign Care Manager", type="primary"):
-            chosen_parent = parent_map[selected_label]
-            new_task = {
-                "nri_user_id": user["id"],
-                "parent_id": chosen_parent["id"],
-                "parent_name": chosen_parent["full_name"],
-                "care_manager_id": "usr-cm-201",
-                "category": category,
-                "title": title or f"{category.replace('_', ' ').title()} Visit",
-                "instructions": instructions,
-                "scheduled_at": f"{visit_date} {visit_time}",
-                "status": "ASSIGNED",
-                "service_fee_inr": est_fee_inr,
-                "out_of_pocket_inr": 0.0,
-            }
-            db.create_task(new_task)
-            st.success("Care task booked and assigned to Senior Care Manager (Ravi Kumar)!")
-            st.rerun()
+            if st.form_submit_button("Confirm & Assign Care Manager", type="primary"):
+                chosen_parent = parent_map[selected_label]
+                new_task = {
+                    "nri_user_id": user["id"],
+                    "parent_id": chosen_parent["id"],
+                    "parent_name": chosen_parent["full_name"],
+                    "care_manager_id": "usr-cm-201",
+                    "category": category,
+                    "title": title or f"{category.replace('_', ' ').title()} Visit",
+                    "instructions": instructions,
+                    "scheduled_at": f"{visit_date} {visit_time}",
+                    "status": "ASSIGNED",
+                    "service_fee_inr": est_fee_inr,
+                    "out_of_pocket_inr": 0.0,
+                }
+                db.create_task(new_task)
+                st.success("Care task booked and assigned to Senior Care Manager (Ravi Kumar)!")
+                st.rerun()
 
     st.markdown("### Recent & Active Care Tasks")
     for t in tasks:
@@ -139,7 +185,8 @@ with tab_invoices:
         chosen_task_key = st.selectbox("Select Care Visit / Task for Invoice PDF", list(task_options.keys()))
         sel_task = task_options[chosen_task_key]
 
-        parent_obj = next((p for p in parents if p["id"] == sel_task["parent_id"]), parents[0])
+        fallback_parent = {"full_name": sel_task.get("parent_name", "Parent"), "city": "India"}
+        parent_obj = next((p for p in parents if p["id"] == sel_task["parent_id"]), fallback_parent)
         svc_fee = float(sel_task.get("service_fee_inr", 1200.0))
         oop_amt = float(sel_task.get("out_of_pocket_inr", 0.0))
 
