@@ -51,6 +51,7 @@ flowchart TD
     e8@{ animate: true }
     e9@{ animate: true }
 ```
+```mermaid
 flowchart LR
     subgraph Onboarding["Account Creation & Provisioning"]
         SA["SYSTEM_ADMIN<br>(Pre-seeded Master Role)"] -->|"Creates & Deletes Staff"| EMP["Employees<br>(ADMIN & CARE_MANAGER)"]
@@ -66,7 +67,6 @@ flowchart LR
         LOGIN -->|"CARE_MANAGER"| P_CM["Care Manager Field Portal + Health Vault"]
         LOGIN -->|"NRI"| P_NRI["NRI Dashboard + Health Vault + Pricing"]
     end
-
 ```
 
 ### Key Capabilities
