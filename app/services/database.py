@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from app.utils.datetime_helper import now_ist_str
 
-DB_PATH = Path(__file__).resolve().parents / "carebridge.db"
+DB_PATH = Path(__file__).resolve().parents[2] / "carebridge.db"
 
 
 class DatabaseService:
