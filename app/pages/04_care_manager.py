@@ -28,7 +28,10 @@ st.caption(
 )
 
 tasks = db.list_tasks("CARE_MANAGER", user["id"])
-parents = db.get_parents_for_nri("usr-nri-101")
+parents = db.get_parents_for_nri(user["id"]) if user["role"] == "NRI" else [
+    {**p, "id": p["parent_id"], "full_name": p["parent_name"]}
+    for p in db.list_all_parents_with_nri()
+]
 nri_recipient = DEMO_USERS["NRI"]
 
 if not tasks:
