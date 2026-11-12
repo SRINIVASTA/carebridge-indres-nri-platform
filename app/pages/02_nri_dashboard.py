@@ -17,7 +17,6 @@ from app.utils.currency import calculate_invoice_totals, convert_from_inr, forma
 from app.utils.datetime_helper import now_ist_str
 from app.utils.validators import validate_indian_phone
 
-st.set_page_config(page_title="NRI Family Dashboard — CareBridge", page_icon="🏠", layout="wide")
 user = require_role(["NRI", "ADMIN"])
 curr = st.session_state.get("currency", user.get("preferred_currency", "USD"))
 
