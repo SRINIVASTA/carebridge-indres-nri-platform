@@ -329,6 +329,7 @@ class DatabaseService:
     def authenticate_user(self, email: str, password: str) -> Optional[Dict[str, Any]]:
         """Verify email and password against SQLite3 users table."""
         clean_email = email.strip().lower()
+        clean_password = password.strip()
         with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT * FROM users WHERE email = ?", (clean_email,)
@@ -339,7 +340,7 @@ class DatabaseService:
             if "$" not in stored:
                 return None
             salt, _ = stored.split("$", 1)
-            if self._hash_password(password, salt) != stored:
+            if self._hash_password(clean_password, salt) != stored:
                 return None
 
             user = dict(row)
