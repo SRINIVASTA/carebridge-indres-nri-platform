@@ -54,20 +54,46 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph Onboarding["Account Creation & Provisioning"]
-        SA["SYSTEM_ADMIN<br>(Pre-seeded Master Role)"] -->|"Creates & Deletes Staff"| EMP["Employees<br>(ADMIN & CARE_MANAGER)"]
-        CUST_REG["Public Sign-Up Tab"] -->|"Self-Registration"| NRI["NRI Family Customer<br>(Role Locked to NRI)"]
+        SA["SYSTEM_ADMIN<br>(Pre-seeded Master Role)"] e1@-->|"Creates & Deletes Staff"| EMP["Employees<br>(ADMIN & CARE_MANAGER)"]
+        CUST_REG["Public Sign-Up Tab"] e2@-->|"Self-Registration"| NRI["NRI Family Customer<br>(Role Locked to NRI)"]
     end
 
     subgraph Gateway["Shared Login & RBAC Routing"]
-        EMP --> LOGIN["main.py / login_ui.py<br>Shared Sign-In Portal"]
-        NRI --> LOGIN
-        SA --> LOGIN
-        LOGIN -->|"SYSTEM_ADMIN"| P_SYS["All Portals + Add/Delete Staff + Audit Logs"]
-        LOGIN -->|"ADMIN"| P_ADM["Admin Ops + Dispatch + KYC + Billing"]
-        LOGIN -->|"CARE_MANAGER"| P_CM["Care Manager Field Portal + Health Vault"]
-        LOGIN -->|"NRI"| P_NRI["NRI Dashboard + Health Vault + Pricing"]
+        EMP e3@--> LOGIN["main.py / login_ui.py<br>Shared Sign-In Portal"]
+        NRI e4@--> LOGIN
+        SA e5@--> LOGIN
+        LOGIN e6@-->|"SYSTEM_ADMIN"| P_SYS["All Portals + Add/Delete Staff + Audit Logs"]
+        LOGIN e7@-->|"ADMIN"| P_ADM["Admin Ops + Dispatch + KYC + Billing"]
+        LOGIN e8@-->|"CARE_MANAGER"| P_CM["Care Manager Field Portal + Health Vault"]
+        LOGIN e9@-->|"NRI"| P_NRI["NRI Dashboard + Health Vault + Pricing"]
     end
+
+    e1@{ animate: true }
+    e2@{ animate: true }
+    e3@{ animate: true }
+    e4@{ animate: true }
+    e5@{ animate: true }
+    e6@{ animate: true }
+    e7@{ animate: true }
+    e8@{ animate: true }
+    e9@{ animate: true }
 ```
+
+## Demo & Role Access Credentials
+
+This platform demonstrates a four-tier Role-Based Access Control (RBAC) onboarding and login architecture:
+* System Admin (SYSTEM_ADMIN): Automatically seeded on startup with master rights to create/delete employee logins and view IST audit logs.
+* Operations Admin & Care Manager (ADMIN / CARE_MANAGER): Provisioned exclusively by the System Admin inside Admin Operations Console -> Manage Employees & History.
+* NRI Family Customer (NRI): Self-registered via the public Create Customer Account (Sign Up) tab.
+
+| Role | Name | Email (Login ID) | Password | Creation Method |
+| :--- | :--- | :--- | :--- | :--- |
+| SYSTEM_ADMIN | Master System Admin | sysadmin@carebridge.in | SysAdmin@123 | Pre-seeded on startup |
+| ADMIN | Priya Nair | priya.admin@carebridge.in | AdminOps@123 | Created by System Admin |
+| CARE_MANAGER | Suresh Naidu | suresh.naidu@carebridge.in | Sahayak@123 | Created by System Admin |
+| NRI | Karthik Reddy | karthik.reddy@example.com | Client@123 | Public Customer Sign Up |
+
+Note: On Streamlit Community Cloud, restarting or redeploying the container resets ephemeral SQLite storage (carebridge.db) back to the default SYSTEM_ADMIN account.
 
 ### Key Capabilities
 
