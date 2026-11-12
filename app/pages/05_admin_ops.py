@@ -178,7 +178,7 @@ with tab_kyc:
             value=cm.get("police_clearance_id") or "AP-POL-VSP-88412",
         )
         kyc_ok = st.checkbox(
-            "Mark KYC & Police Background Check Verified", value=bool(cm.get("kyc_verified", True))
+            "Mark KYC & Police Background Check Verified", value=bool(cm.get("kyc_verified", False))
         )
 
         if st.form_submit_button("Save Verification Status", type="primary"):
@@ -186,12 +186,30 @@ with tab_kyc:
             if masked == "INVALID-ID":
                 st.error("Aadhaar number must contain exactly 12 digits.")
             else:
-                if not cm["id"].startswith("usr-cm-201"):
+                if cm["id"].startswith("usr-cm-201"):
+                    DEMO_USERS["CARE_MANAGER"]["police_clearance_id"] = police_id
+                    DEMO_USERS["CARE_MANAGER"]["kyc_verified"] = kyc_ok
+                else:
                     db.verify_staff_kyc(cm["id"], police_id, kyc_ok)
-                st.success(
+
+                st.session_state["last_kyc_msg"] = (
                     f"Updated **{staff_name}** | Masked ID: `{masked}` | "
                     f"Police Clearance: `{police_id}` | Verified: `{kyc_ok}`"
                 )
+                st.rerun()
+
+    if st.session_state.get("last_kyc_msg"):
+        st.success(st.session_state["last_kyc_msg"])
+
+    # Live status table right inside Tab 3
+    st.divider()
+    st.markdown("#### Current Care Manager Verification Ledger")
+    current_cms = db.list_all_users("CARE_MANAGER") or [DEMO_USERS["CARE_MANAGER"]]
+    st.dataframe(
+        pd.DataFrame(current_cms)[["id", "full_name", "phone", "kyc_verified", "police_clearance_id"]],
+        use_container_width=True,
+        hide_index=True,
+    )
 # TAB 4: Invoice Ledger & Multi-Channel Dispatch
 with tab_billing:
     st.subheader("Issued Invoices — Download or Re-Dispatch to NRI")
