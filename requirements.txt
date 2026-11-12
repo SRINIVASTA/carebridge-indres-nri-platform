@@ -1,6 +1,5 @@
 streamlit
 pydantic
-supabase
 pandas
 plotly
 requests
