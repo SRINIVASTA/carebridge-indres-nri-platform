@@ -1,7 +1,7 @@
 from pathlib import Path
 import sys
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+ROOT_DIR = Path(__file__).resolve().parents
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
@@ -16,15 +16,16 @@ from app.services.storage import VaultStorageService
 from app.utils.datetime_helper import now_ist_str
 from app.utils.validators import is_allowed_file
 
-user = require_role(["NRI", "CARE_MANAGER", "ADMIN"])
+user = require_role(["INDRES_NRI", "NRI", "CARE_MANAGER", "ADMIN"])
 role = user.get("role")
+is_customer = role in ("INDRES_NRI", "NRI")
 
 db = DatabaseService()
 storage = VaultStorageService()
 notifier = NotificationDispatcher()
 
-# Role-based parent visibility: NRIs see only their own parents; Staff/Admin see assigned/all parents
-if role == "NRI":
+# Role-based care recipient visibility: Customers see their own profiles; Staff/Admin see all
+if is_customer:
     parents = db.get_parents_for_nri(user["id"])
 else:
     parents = [
@@ -32,20 +33,28 @@ else:
         for p in db.list_all_parents_with_nri()
     ]
 
-st.title("Encrypted Health & Document Vault")
+st.title("Encrypted Health, Mobility & Document Vault")
 
 if not parents:
-    st.warning("No parent profiles registered yet. Add a parent in the NRI Family Dashboard first.")
+    st.warning("No care profiles registered yet. Add a profile in your Care Dashboard first.")
     st.stop()
 
-parent_map = {f"{p['full_name']} (Age {p['age']}, {p['city']})": p for p in parents}
-selected_parent_label = st.selectbox("Select Parent Profile", list(parent_map.keys()))
+parent_map = {
+    f"{p['full_name']} (Age {p['age']}, {p['city']} — {p.get('mobility_level', 'INDEPENDENT')})": p
+    for p in parents
+}
+selected_parent_label = st.selectbox("Select Care Recipient Profile", list(parent_map.keys()))
 parent = parent_map[selected_parent_label]
 
+mobility_display = str(parent.get("mobility_level", "INDEPENDENT")).replace("_", " ").title()
+access_notes = parent.get("home_access_notes") or "Standard access"
+
 st.info(
+    f"**Mobility Status:** `{mobility_display}` &nbsp;|&nbsp; "
     f"**Blood Group:** {parent.get('blood_group', 'N/A')} &nbsp;|&nbsp; "
     f"**Known Conditions:** {parent.get('medical_conditions', 'None')} &nbsp;|&nbsp; "
-    f"**Local Emergency Contact:** {parent.get('emergency_contact_india', 'N/A')}"
+    f"**Local Emergency Contact:** {parent.get('emergency_contact_india', 'N/A')}\n\n"
+    f"**Home Access / Lift / Ramp Notes:** {access_notes}"
 )
 
 vitals = db.get_vitals(parent["id"])
@@ -66,7 +75,7 @@ with col_chart:
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.warning("No vitals recorded yet for this parent.")
+        st.warning("No vitals recorded yet for this care recipient.")
 
 with col_export:
     st.subheader("Health Summary PDF")
@@ -75,11 +84,11 @@ with col_export:
         parent_name=parent["full_name"],
         parent_city=parent["city"],
         care_manager_name="CareBridge Medical Team",
-        visit_title="Cumulative Vitals & Wellness Summary",
+        visit_title="Cumulative Vitals & Mobility Wellness Summary",
         checkin_time=str(latest.get("recorded_at", now_ist_str())),
         gps_coords="Verified Home Visit",
         vitals=latest,
-        notes=str(latest.get("notes", "All vitals within monitored range.")),
+        notes=str(latest.get("notes", f"Mobility: {mobility_display}. All vitals within monitored range.")),
     )
 
     st.download_button(
@@ -90,8 +99,8 @@ with col_export:
         use_container_width=True,
     )
 
-    # Only NRI family members & Admins can trigger external multi-channel dispatch
-    if role in ["NRI", "ADMIN"]:
+    # Customers (Indian Residents / NRI Sponsors) & Admins can trigger external multi-channel dispatch
+    if is_customer or role in ("ADMIN", "SYSTEM_ADMIN"):
         if st.button("📤 Send Health PDF to My Channels", type="primary", use_container_width=True):
             path = storage.upload_file(health_pdf, "health_reports", f"{parent['id']}_summary.pdf")
             signed_url = storage.get_signed_download_url(path or "")
@@ -117,7 +126,7 @@ st.divider()
 # Strict Role-Based Vault Upload Permissions
 if role == "CARE_MANAGER":
     st.subheader("Upload Clinical Prescription or Lab Report")
-    st.caption("Restricted Staff View: Insurance policies and family ID documents are hidden for NRI privacy.")
+    st.caption("Restricted Staff View: Insurance policies and family ID documents are hidden for member privacy.")
     allowed_doc_types = ["PRESCRIPTION", "LAB_REPORT"]
 else:
     st.subheader("Upload Prescription, Lab Report, Insurance Policy, or ID Proof")
@@ -125,7 +134,7 @@ else:
 
 with st.form("upload_health_doc"):
     doc_type = st.selectbox("Document Type", allowed_doc_types)
-    doc_title = st.text_input("Document Title", placeholder="e.g., Apollo Cardiology Prescription - Nov 2026")
+    doc_title = st.text_input("Document Title", placeholder="e.g., Apollo Ortho & Physio Prescription - Nov 2026")
     uploaded_file = st.file_uploader("Upload PDF or Image (Max 25 MB)", type=["pdf", "png", "jpg", "jpeg"])
 
     if st.form_submit_button("Encrypt & Store in Vault", type="primary"):
