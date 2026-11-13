@@ -17,7 +17,7 @@ def render_auth_portal() -> None:
         ]
     )
 
-    # TAB 1: Shared Password Login (Indian Residents, NRI Sponsors, Care Managers & Admins)
+    # TAB 1: Shared Password Login & Self-Service Password Reset
     with tab_login:
         st.caption(
             "Sign in with your registered Indian Resident / NRI email or your System Admin-issued Employee credentials."
@@ -37,7 +37,35 @@ def render_auth_portal() -> None:
                         st.success(f"Welcome back, {user['full_name']}!")
                         st.rerun()
                     else:
-                        st.error("Invalid email or password. Please try again or create a customer account.")
+                        st.error("Invalid email or password. Please try again or reset your password below.")
+
+        with st.expander("🔑 Forgot Password? Reset Your Password"):
+            st.caption(
+                "Verify your registered Email Address and Mobile Number (E.164 format, e.g., +919848012345) "
+                "to set a new password."
+            )
+            with st.form("self_reset_pw_form", clear_on_submit=True):
+                r_email = st.text_input("Registered Email Address *", placeholder="you@example.com")
+                r_phone = st.text_input(
+                    "Registered Mobile / WhatsApp Number *", placeholder="+919848012345 or +14155550199"
+                )
+                r1, r2 = st.columns(2)
+                r_new_pw = r1.text_input("New Password * (min 6 chars)", type="password")
+                r_confirm_pw = r2.text_input("Confirm New Password *", type="password")
+
+                if st.form_submit_button("Reset My Password", use_container_width=True):
+                    if not r_email.strip() or not r_phone.strip():
+                        st.error("Please enter both your registered email and mobile number.")
+                    elif r_new_pw.strip() != r_confirm_pw.strip():
+                        st.error("New passwords do not match.")
+                    else:
+                        try:
+                            db.self_reset_password(r_email, r_phone, r_new_pw)
+                            st.success(
+                                "✅ Password reset successfully! You can now sign in above with your new password."
+                            )
+                        except ValueError as exc:
+                            st.error(str(exc))
 
     # TAB 2: Create New Customer Account (Indian Resident Self-Care or NRI Sponsor)
     with tab_signup:
