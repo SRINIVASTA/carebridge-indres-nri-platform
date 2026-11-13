@@ -136,11 +136,11 @@ Ad-hoc concierge and medical escort tasks are billed per completed visit with ma
 ┌───────────────────────────────────────────────┬─────────────────────┬─────────────────┐
 │ On-Demand Service Category                    │ INR Rate Tranche    │ USD Equivalent  │
 ├───────────────────────────────────────────────┼─────────────────────┼─────────────────┤
-│ Routine Home Wellbeing & Vitals Check         │ ₹600 – ₹1,200       │ \$8 – \$15        │
-│ Bank, Government, or Pension Life Certificate │ ₹1,000 – ₹2,000     │ \$12 – \$25       │
-│ Doctor / Hospital Visit Escort (up to 4 hrs)  │ ₹1,000 – ₹2,500     │ \$12 – \$30       │
-│ Property / Locked Flat Inspection             │ ₹1,500 – ₹3,000     │ \$18 – \$36       │
-│ Airport Pickup / Drop Assistance (+ actuals)  │ ₹1,500 – ₹3,500     │ \$18 – \$42       │
+│ Routine Home Wellbeing & Vitals Check         │ ₹600 – ₹1,200       │ \$8 – \$15      │
+│ Bank, Government, or Pension Life Certificate │ ₹1,000 – ₹2,000     │ \$12 – \$25     │
+│ Doctor / Hospital Visit Escort (up to 4 hrs)  │ ₹1,000 – ₹2,500     │ \$12 – \$30     │
+│ Property / Locked Flat Inspection             │ ₹1,500 – ₹3,000     │ \$18 – \$36     │
+│ Airport Pickup / Drop Assistance (+ actuals)  │ ₹1,500 – ₹3,500     │ \$18 – \$42     │
 └───────────────────────────────────────────────┴─────────────────────┴─────────────────┘
 ```
 
