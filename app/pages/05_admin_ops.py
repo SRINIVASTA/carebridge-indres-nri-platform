@@ -125,6 +125,13 @@ with tab_audit:
                     f"Assigned ID: `{t.get('care_manager_id', 'Unassigned')}`{tag_line}"
                 )
 
+                # Show Receipt Proof or Unbilled Auto/Petty-Cash Voucher Note
+                receipt_info = str(t.get("receipt_url") or "")
+                if receipt_info.startswith("UNBILLED_VOUCHER:"):
+                    c1.warning(f"🧾 **Unbilled Cash/Auto Claim:** {receipt_info.replace('UNBILLED_VOUCHER:', '').strip()}")
+                elif receipt_info:
+                    c1.caption(f"📎 Receipt Attached: `{receipt_info}`")
+
                 current_idx = next(
                     (i for i, c in enumerate(cm_pool) if c["id"] == t.get("care_manager_id")), 0
                 )
@@ -153,7 +160,7 @@ with tab_audit:
                     f"Fee: ₹{float(t.get('service_fee_inr', 0)):,.0f} | "
                     f"Actuals: ₹{float(t.get('out_of_pocket_inr', 0)):,.0f}"
                 )
-                if t.get("out_of_pocket_inr", 0) > 0 and not t.get("receipt_verified"):
+                if float(t.get("out_of_pocket_inr", 0)) > 0 and not t.get("receipt_verified"):
                     if c3.button(
                         "Approve & Deduct Wallet",
                         key=f"settle_{t['id']}",
