@@ -1,46 +1,26 @@
-# CareBridge India — NRI Parent Care & Concierge Platform
+# 🏥 CareBridge India — NRI Parent Care & Concierge Platform
 
-A cloud-ready Streamlit web application for Non-Resident Indians (NRIs) to manage healthcare, daily errands, emergency support, itemized PDF invoicing, and property concierge services for their aging parents in India.
+A cloud-ready financial and healthcare operations workstation built with Streamlit for Non-Resident Indians (NRIs) to manage geriatric medical monitoring, daily errands, 24/7 emergency support, itemized GST PDF invoicing, and property concierge services for aging parents in India.
 
-## About
 
-CareBridge India provides a transparent, real-time caregiving and concierge platform connecting NRIs abroad with verified local Care Managers (*Sahayaks*) in India. Families can subscribe to monthly care plans or book on-demand assistance for hospital visits, banking paperwork, bill payments, and home check-ins with live GPS verification, receipt proofs, and automated PDF visit/invoice reports.
+## 🏛️ System Architecture
 
-Built and maintained by [T A Srinivas (@SRINIVASTA)](https://github.com), this repository hosts a multi-role Streamlit web gateway, a multi-currency (USD/INR/GBP/EUR) billing and prepaid expense wallet, a digital medical and document vault, an automated ReportLab PDF invoice/report generator, and a live Care Manager field reporting portal.
-
-## Modules in this repo
-
-| Module | Description |
-| :--- | :--- |
-| `main.py` | Main Streamlit entry point managing session state, role-based access routing (NRI, Care Manager, Admin), communication preferences, and multi-currency switching. |
-| `01_plans_and_pricing.py` | Displays public monthly subscription tiers (Essential, Complete Medical + Errands, Couple Care) and pay-as-you-go service rate cards. |
-| `02_nri_dashboard.py` | Enables NRIs to schedule tasks, manage their prepaid INR expense wallet, trigger 24/7 SOS alerts, and download or send itemized PDF invoices. |
-| `03_health_vault.py` | Stores prescriptions, diagnostic lab reports, insurance policies, chronological vitals logs (BP, blood sugar, pulse, SpO2), and exports PDF health summaries. |
-| `04_care_manager.py` | Mobile-responsive field portal for local Care Managers in India to log GPS check-ins, record parent vitals, upload receipts, and auto-dispatch PDF reports. |
-| `05_admin_ops.py` | Operations panel for verifying ground staff KYC/police clearance, settling out-of-pocket actuals, and auditing/re-sending GST PDF invoices. |
-
-### Architecture & Workflow
+The platform decouples core persistence, multi-currency GST computation, and ReportLab document compilation from the multi-role Streamlit presentation layer to maintain a transparent, real-time operational workflow.
 
 ```mermaid
 flowchart TD
-    subgraph Client_Interface_Layer["NRI Client Layer - Global Web Access"]
-        A["main.py<br>Streamlit Multi-Role Gateway"] e1@-->|"Step 1 - Select Plan or Task"| B["01_plans_and_pricing.py<br>USD / INR Subscriptions & Rates"]
-        A e2@-->|"Step 2 - Book Care, Invoice or SOS"| C["02_nri_dashboard.py<br>Task Scheduler, Wallet & PDF Invoices"]
-    end
+    %% Architecture Pipeline Nodes
+    A[main.py<br>Multi-Role Streamlit Gateway] e1@-->|Step 1 - Select Plan or Task| B(01_plans_and_pricing.py)
+    A e2@-->|Step 2 - Book Care, Wallet & SOS| C(02_nri_dashboard.py)
+    C e3@-->|Assigned Task + Alert| D{Task Category Router}
+    D e4@-->|Medical / Hospital Escort| E(04_care_manager.py)
+    D e5@-->|Banking / Property / Errand| E
+    E e6@-->|GPS Check-in + Bill Receipts| F(05_admin_ops.py)
+    F e7@-->|Verified Visit & Settlement| G[(database.py & storage.py<br>SQLite3 + Local/S3 Vault)]
+    G e8@-->|Vitals & Medical Records| H(03_health_vault.py)
+    G e9@-->|ReportLab PDF + Multi-Channel Alert| I(pdf_generator.py & notifications.py)
 
-    subgraph Ground_Operations_Layer["India Ground Operations Layer"]
-        C e3@-->|"Assigned Task + Alert"| D{"Task Category?"}
-        D e4@-->|"Medical / Hospital Escort"| E["04_care_manager.py<br>Vitals Logger & Receipt Upload"]
-        D e5@-->|"Banking / Property / Errand"| E
-        E e6@-->|"GPS Check-in + Bill Receipts"| F["05_admin_ops.py<br>Verification & Actuals Settlement"]
-    end
-
-    subgraph Storage_and_Compliance_Layer["Database, PDF Engine & Communications Layer"]
-        F e7@-->|"Verified Visit & Invoice"| G["database.py & storage.py<br>Zero-Setup SQLite3 + Local/S3 Vault"]
-        G e8@-->|"Vitals & Medical Records"| H["03_health_vault.py<br>Live Family Feed & Health PDF Export"]
-        G e9@-->|"PDF Invoice & Visit Summary"| I["pdf_generator.py & notifications.py<br>ReportLab PDF + Email / WhatsApp / SMS"]
-    end
-
+    %% Running Flow Animation Definitions
     e1@{ animate: true }
     e2@{ animate: true }
     e3@{ animate: true }
@@ -50,114 +30,82 @@ flowchart TD
     e7@{ animate: true }
     e8@{ animate: true }
     e9@{ animate: true }
+
+    %% Clean Visual Styling
+    style A fill:#e3f2fd,stroke:#1565c0,stroke-width:2px;
+    style D fill:#fff8e1,stroke:#f9a825,stroke-width:2px;
+    style G fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
 ```
+
+### Onboarding, RBAC & Service Fulfillment Pipeline
+
 ```mermaid
-flowchart LR
-    subgraph Onboarding["Account Creation & Provisioning"]
-        SA["SYSTEM_ADMIN<br>(Pre-seeded Master Role)"] e1@-->|"Creates & Deletes Staff"| EMP["Employees<br>(ADMIN & CARE_MANAGER)"]
-        CUST_REG["Public Sign-Up Tab"] e2@-->|"Self-Registration"| NRI["NRI Family Customer<br>(Role Locked to NRI)"]
+sequenceDiagram
+    autonumber
+    actor NRI as NRI Sponsor / Family
+    participant UI as main.py (RBAC Gateway)
+    participant Field as 04_care_manager.py (Sahayak Portal)
+    participant Ops as 05_admin_ops.py (Ops & GST Ledger)
+    
+    rect rgb(232, 245, 233)
+    Note right of NRI: Phase 1: Self-Registration & Care Booking
+    NRI->>UI: Sign Up & Fund Prepaid INR Expense Wallet
+    UI->>UI: Validate Currency & Session Role (INDRES_NRI)
+    NRI->>UI: Schedule Medical Escort or Concierge Errand
     end
 
-    subgraph Gateway["Shared Login & RBAC Routing"]
-        EMP e3@--> LOGIN["main.py / login_ui.py<br>Shared Sign-In Portal"]
-        NRI e4@--> LOGIN
-        SA e5@--> LOGIN
-        LOGIN e6@-->|"SYSTEM_ADMIN"| P_SYS["All Portals + Add/Delete Staff + Audit Logs"]
-        LOGIN e7@-->|"ADMIN"| P_ADM["Admin Ops + Dispatch + KYC + Billing"]
-        LOGIN e8@-->|"CARE_MANAGER"| P_CM["Care Manager Field Portal + Health Vault"]
-        LOGIN e9@-->|"NRI"| P_NRI["NRI Dashboard + Health Vault + Pricing"]
+    rect rgb(227, 242, 253)
+    Note right of NRI: Phase 2: Ground Execution & GPS Proof
+    UI->>Field: Dispatch Task Alert to Verified Sahayak
+    Field->>Field: Capture GPS Check-In, Vitals & Bill Receipts
+    Field-->>Ops: Submit Field Logs for Compliance Audit
     end
 
-    e1@{ animate: true }
-    e2@{ animate: true }
-    e3@{ animate: true }
-    e4@{ animate: true }
-    e5@{ animate: true }
-    e6@{ animate: true }
-    e7@{ animate: true }
-    e8@{ animate: true }
-    e9@{ animate: true }
+    rect rgb(255, 243, 224)
+    Note right of NRI: Phase 3: Actuals Settlement & PDF Dispatch
+    Ops->>Ops: Verify Receipts & Deduct Actuals from Wallet
+    Ops-->>NRI: Compile ReportLab GST Invoice & Vitals PDF (Email/WhatsApp)
+    end
 ```
 
-## Demo & Role Access Credentials
+---
 
-This platform demonstrates a four-tier Role-Based Access Control (RBAC) onboarding and login architecture:
-* System Admin (SYSTEM_ADMIN): Automatically seeded on startup with master rights to create/delete employee logins and view IST audit logs.
-* Operations Admin & Care Manager (ADMIN / CARE_MANAGER): Provisioned exclusively by the System Admin inside Admin Operations Console -> Manage Employees & History.
-* NRI Family Customer (NRI): Self-registered via the public Create Customer Account (Sign Up) tab.
-
-
-| Role | Customer Type | Name | Email (Login ID) | Phone / WhatsApp | Password | Creation Method |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `SYSTEM_ADMIN` | `SYSTEM` | Master System Admin | `sysadmin@carebridge.in` | `+919848000001` | `SysAdmin@123` | Pre-seeded on startup |
-| `ADMIN` | `STAFF` | Priya Nair | `priya.admin@carebridge.in` | `+919849054321` | `AdminOps@123` | Created by System Admin |
-| `CARE_MANAGER` | `STAFF` | Suresh Naidu | `suresh.naidu@carebridge.in` | `+919848012345` | `Sahayak@123` | Created by System Admin |
-| `INDRES_NRI` | `NRI_SPONSOR` | Karthik Reddy | `karthik.reddy@example.com` | `+14155550199` | `Client@123` | Public Customer Sign Up (NRI Sponsor) |
-| `INDRES_NRI` | `INDIAN_RESIDENT` | Smt. Lakshmi Narayana Rao | `lakshmi.rao@example.com` | `+919848022334` | `Resident@123` | Public Customer Sign Up (Indian Resident) |
-
-Note: On Streamlit Community Cloud, restarting or redeploying the container resets ephemeral SQLite storage (carebridge.db) back to the default SYSTEM_ADMIN account.
-
-### Key Capabilities
-
-* **Unified Medical & Concierge Care:** Combines routine health monitoring, doctor appointment escorting, and 24/7 emergency hospital support with everyday errands like pension paperwork, utility bills, and property checks.
-* **Itemized PDF Invoices & Visit Reports:** Generates GST-compliant PDF tax invoices and post-visit vitals summary PDFs via ReportLab, with 1-click browser downloads and multi-channel delivery (Email attachments, WhatsApp, and SMS).
-* **Transparent Prepaid Expense Wallet:** Separates service charges from 100% actual out-of-pocket costs (medicines, lab bills, cab fares), backed by mandatory photo receipt uploads before wallet deduction.
-* **Zero-Setup SQLite3 & Cloud Deployment:** Runs out-of-the-box with built-in SQLite3 persistence and supports instant deployment from GitHub to Streamlit Community Cloud.
-
-## Service Pricing Reference
-
-### Monthly Subscriptions
-
-| Plan Tier | Monthly Charge (INR) | Monthly Charge (USD) | Included Coverage |
-| :--- | :--- | :--- | :--- |
-| **Essential Errands & Check-Ins** | ₹3,500 – ₹6,000 | $45 – $75 | 2 planned home visits/month, bill payments, banking help, grocery coordination, and photo updates. |
-| **Complete Medical + Errands** | ₹7,500 – ₹12,500 | $90 – $150 | 4 weekly visits, BP/sugar checks, doctor appointment escorting, medicine refills, and 24/7 SOS. |
-| **Comprehensive / Couple Care** | ₹14,000 – ₹22,000 | $170 – $265 | Weekly visits covering **both parents**, hospital escorting, lab coordination, and property checks. |
-
-### Pay-As-You-Go On-Demand Rates
-
-* **Doctor / Hospital Visit Escort (up to 4 hrs):** ₹1,000 – ₹2,500 ($12 – $30)
-* **Routine Home Wellbeing & Vitals Check:** ₹600 – ₹1,200 ($8 – $15)
-* **Bank, Government, or Pension Life Certificate:** ₹1,000 – ₹2,000 ($12 – $25)
-* **Airport Pickup / Drop Assistance:** ₹1,500 – ₹3,500 ($18 – $42) *(excluding actual cab/toll)*
-* **Property / Locked Flat Inspection:** ₹1,500 – ₹3,000 ($18 – $36)
-
-## Repository Structure
+## 📁 Repository Directory Tree
 
 ```text
-carebridge-nri-platform/
-├── .github/
-│   └── workflows/
+📁 carebridge-nri-platform/
+├── 📁 .github/
+│   └── 📁 workflows/
 │       └── ci-cd.yml                 # Automated linting, unit tests, and security checks on push
-├── .streamlit/
+├── 📁 .streamlit/
 │   ├── config.toml                   # Custom medical-teal theme, fonts, and 25 MB upload limit
 │   └── secrets.toml.example          # Template for Stripe, Razorpay, Twilio, SMTP, and S3 keys
-├── app/
+├── 📁 app/
 │   ├── main.py                       # Main entry point, session initialization, and role-based router
-│   ├── assets/
+│   ├── 📁 assets/
 │   │   ├── logo.png                  # Brand logo and favicons
 │   │   └── styles.css                # Custom CSS overrides for cards, badges, and responsive UI
-│   ├── auth/
+│   ├── 📁 auth/
 │   │   ├── session_manager.py        # Role-based access control (NRI, Care Manager, Admin)
 │   │   └── login_ui.py               # Role demo access and communication channel preferences
-│   ├── pages/
+│   ├── 📁 pages/
 │   │   ├── 01_plans_and_pricing.py   # Public USD/INR subscription plans and on-demand rate cards
 │   │   ├── 02_nri_dashboard.py       # Service booking, prepaid wallet, SOS trigger, & PDF invoices
 │   │   ├── 03_health_vault.py        # Medical reports, vitals trends, & PDF health report export
 │   │   ├── 04_care_manager.py        # Ground staff GPS check-in, receipt upload, & auto-dispatch PDFs
 │   │   └── 05_admin_ops.py           # Staff verification (KYC/Police ID), audit, & invoice ledger
-│   ├── services/
+│   ├── 📁 services/
 │   │   ├── database.py               # Zero-setup SQLite3 CRUD operations for parents, tasks, & invoices
 │   │   ├── storage.py                # Local Vault / AWS S3 handling for receipts, lab PDFs, & invoices
 │   │   ├── payments.py               # Stripe (International USD/GBP/EUR) and Razorpay (INR) integration
 │   │   ├── pdf_generator.py          # ReportLab engine for itemized PDF invoices & visit/vitals reports
 │   │   └── notifications.py          # Email (PDF attachment), WhatsApp, and SMS multi-channel dispatch
-│   ├── models/
+│   ├── 📁 models/
 │   │   └── schemas.py                # Pydantic data validation models for requests, vitals, & invoices
-│   └── utils/
+│   └── 📁 utils/
 │       ├── currency.py               # Multi-currency conversion and 18% service-only GST math
 │       └── validators.py             # Indian/international phone, Aadhaar mask, & file type checks
-├── tests/
+├── 📁 tests/
 │   ├── test_billing.py               # Unit tests for currency math, GST invoices, & PDF generation
 │   └── test_permissions.py           # Validation tests for phone numbers, Aadhaar masking, & uploads
 ├── .gitignore                        # Excludes *.db, local_vault/, secrets.toml, and __pycache__
@@ -166,47 +114,106 @@ carebridge-nri-platform/
 ├── requirements.txt                  # Pinned production Python dependencies
 └── README.md                         # Setup guide, pricing reference, and architecture diagram
 ```
+---
 
-## Cloud & Local Setup
+## 📊 Monthly Care Subscription Tiers (`01_plans_and_pricing.py`)
 
-### Local Development Setup
+The billing engine (`app/utils/currency.py`) dynamically converts subscription charges across **USD / INR / GBP / EUR** and applies **18% service-only GST** while keeping out-of-pocket medical and errand actuals strictly pass-through:
 
-```bash
-# Clone the repository
-git clone https://github.com/carebridge-nri-platform.git
-cd carebridge-nri-platform
+| Plan Tier | Monthly Charge (INR) | Monthly Charge (USD) | Included Coverage & Operational Invariants |
+| :--- | :---: | :---: | :--- |
+| **`ESSENTIAL_CARE`** *(Essential Errands & Check-Ins)* | **₹3,500 – ₹6,000** | **\$45 – \$75** | 2 planned home visits/month, utility bill payments, banking help, grocery coordination, and photo updates. |
+| **`COMPLETE_MEDICAL`** *(Complete Medical + Errands)* | **₹7,500 – ₹12,500** | **\$90 – \$150** | 4 weekly visits, BP/blood sugar checks, doctor appointment escorting, medicine refills, and 24/7 SOS priority. |
+| **`COUPLE_CARE`** *(Comprehensive / Couple Care)* | **₹14,000 – ₹22,000** | **\$170 – \$265** | Weekly visits covering **both parents**, hospital admission escorting, lab coordination, and locked property checks. |
 
-# Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate        # On Windows: venv\Scripts\activate
+---
 
-# Install dependencies
-pip install -r requirements.txt
+## 💸 Pay-As-You-Go On-Demand Rate Card (`ON_DEMAND_SERVICES`)
 
-# Copy secrets template and add your keys (optional — SQLite3 works out-of-the-box)
-cp .streamlit/secrets.toml.example .streamlit/secrets.toml
+Ad-hoc concierge and medical escort tasks are billed per completed visit with mandatory GPS check-in verification and digital receipt proofs prior to wallet deduction:
 
-# Launch the application
-streamlit run app/main.py
+```text
+┌───────────────────────────────────────────────┬─────────────────────┬─────────────────┐
+│ On-Demand Service Category                    │ INR Rate Tranche    │ USD Equivalent  │
+├───────────────────────────────────────────────┼─────────────────────┼─────────────────┤
+│ Routine Home Wellbeing & Vitals Check         │ ₹600 – ₹1,200       │ \$8 – \$15        │
+│ Bank, Government, or Pension Life Certificate │ ₹1,000 – ₹2,000     │ \$12 – \$25       │
+│ Doctor / Hospital Visit Escort (up to 4 hrs)  │ ₹1,000 – ₹2,500     │ \$12 – \$30       │
+│ Property / Locked Flat Inspection             │ ₹1,500 – ₹3,000     │ \$18 – \$36       │
+│ Airport Pickup / Drop Assistance (+ actuals)  │ ₹1,500 – ₹3,500     │ \$18 – \$42       │
+└───────────────────────────────────────────────┴─────────────────────┴─────────────────┘
 ```
 
-Open your browser and navigate to `http://localhost:8501`.
+---
 
+## 🔐 Role-Based Access Control & Demo Credentials (`app/auth/session_manager.py`)
 
-## License
+The gateway enforces a four-tier **RBAC** matrix across system administrators, verified ground staff (*Sahayaks*), and global NRI/resident family sponsors:
 
-This repository is licensed under the [MIT License](LICENSE) — Copyright (c) 2026 [T A Srinivas](https://github.com).
+| System Role | Account Type | User Name | Login Email ID | Phone / WhatsApp | Password | Provisioning Workflow |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`SYSTEM_ADMIN`** | `SYSTEM` | Master System Admin | `sysadmin@carebridge.in` | `+919848000001` | `SysAdmin@123` | Pre-seeded automatically on startup |
+| **`ADMIN`** | `STAFF` | Priya Nair | `priya.admin@carebridge.in` | `+919849054321` | `AdminOps@123` | Created by System Admin in Ops Console |
+| **`CARE_MANAGER`** | `STAFF` | Suresh Naidu | `suresh.naidu@carebridge.in` | `+919848012345` | `Sahayak@123` | Created by System Admin in Ops Console |
+| **`INDRES_NRI`** | `NRI_SPONSOR` | Karthik Reddy | `karthik.reddy@example.com` | `+14155550199` | `Client@123` | Self-registered via Public Sign-Up Tab |
+| **`INDRES_NRI`** | `INDIAN_RESIDENT` | Smt. Lakshmi Narayana Rao | `lakshmi.rao@example.com` | `+919848022334` | `Resident@123` | Self-registered via Public Sign-Up Tab |
 
-## Disclaimer
+> **Cloud Persistence Note:** On Streamlit Community Cloud, container restarts reset ephemeral SQLite storage (`carebridge.db`) back to the default `SYSTEM_ADMIN` seed account.
+
+---
+
+## 🚀 Local Host Installation & Boot Instructions
+
+To run the workstation engine locally on your authorized machine, follow these steps:
+
+### 1. Configure the Local Environment & Install Dependencies
+```bash
+# 1. Access project workspace path
+cd carebridge-nri-platform
+
+# 2. Spawn targeted Python virtual node
+python3 -m venv venv
+
+# 3. Initialize terminal activation link context
+# On macOS/Linux:
+source venv/bin/activate
+# On Windows PowerShell:
+.\venv\Scripts\Activate.ps1
+
+# 4. Ingest and compile required packages
+pip install -r requirements.txt
+```
+
+### 2. Configure Optional API Secrets (Zero-Setup SQLite3 Works Out-of-the-Box)
+Copy the secrets template if you wish to connect live Stripe, Razorpay, Twilio, SMTP, or AWS S3 credentials:
+```bash
+cp .streamlit/secrets.toml.example .streamlit/secrets.toml
+```
+
+### 3. Launch the Workstation Server on LocalHost
+Boot the UI layer using Streamlit on `port 8501`:
+```bash
+streamlit run app/main.py
+```
+Access the application directly in your browser at:
+👉 **`http://localhost:8501`**
+
+### 4. Run Automated Billing & RBAC Diagnostic Suites
+Verify multi-currency GST math, ReportLab PDF generation, and permission validators via PyTest:
+```bash
+pytest -v tests/
+```
+
+---
+
+## ⚠️ Clinical & Operational Disclaimer
 
 > **Important Notice:** This platform facilitates non-clinical care coordination, errand management, and home health monitoring. In the event of a critical medical emergency, local Care Managers coordinate immediate transport to the family's designated hospital, while all clinical diagnoses and treatments remain solely under the supervision of licensed medical practitioners.
 
-## ⭐ Support & Contribution
+---
 
-If you clone, test, or build upon this repository, please consider giving it a **Star (⭐)** on GitHub—it helps others discover the project and supports continued development.
+## 🛡️ License, Copyright & Compliance Notices
 
-* **Found a bug or have an idea?** Open an [Issue](https://github.com).
-* **Want to improve the code?** Feel free to **Fork** this repository and submit a Pull Request.
-Use code with caution.
-Would you like me to paste the entire complete README.md from top to bottom with everything already in the exact right order so you can copy-paste the whole file at once?
+**All Rights Reserved © 2026 T A Srinivas.**
 
+Developed exclusively for portfolio demonstration profiles. **DO NOT DISTRIBUTE, CLONE, OR DUPLICATE.** Corporate licensing inquiries can be routed to `tasrinivass@gmail.com`.
