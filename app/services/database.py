@@ -142,7 +142,6 @@ class DatabaseService:
                 );
                 """
             )
-
             table_migrations = {
                 "users": {
                     "customer_type": "TEXT DEFAULT 'NRI_SPONSOR'",
@@ -280,7 +279,6 @@ class DatabaseService:
                         seed_ts,
                     ),
                 )
-
     def register_user(
         self,
         email: str,
@@ -296,9 +294,13 @@ class DatabaseService:
     ) -> Dict[str, Any]:
         """Create a new user account (Indian Resident, NRI Sponsor, or Staff) with IST timestamp."""
         clean_email = email.strip().lower()
+        clean_password = password.strip()
+        if len(clean_password) < 6:
+            raise ValueError("Password must be at least 6 characters long.")
+
         channels = preferred_channels or ["EMAIL", "WHATSAPP"]
         user_id = f"usr-{uuid.uuid4().hex[:8]}"
-        self._hash_password(password.strip())
+        hashed_pw = self._hash_password(clean_password)
         created_ts = now_ist_str()
 
         resolved_customer_type = customer_type or (
@@ -413,6 +415,31 @@ class DatabaseService:
             user["kyc_verified"] = bool(user.get("kyc_verified", 0))
             return user
 
+    def reset_user_password(
+        self, user_id: str, new_password: str, performed_by: str = "SYSTEM_ADMIN"
+    ) -> Dict[str, Any]:
+        """Reset password for any existing Customer or Employee account and log to audit history."""
+        clean_pw = new_password.strip()
+        if len(clean_pw) < 6:
+            raise ValueError("New password must be at least 6 characters long.")
+        hashed_pw = self._hash_password(clean_pw)
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            if not row:
+                raise ValueError("User account not found.")
+            target = dict(row)
+            conn.execute(
+                "UPDATE users SET password_hash = ? WHERE id = ?",
+                (hashed_pw, user_id),
+            )
+
+        self.log_staff_action(
+            action="PASSWORD_RESET",
+            target_user=target,
+            performed_by=performed_by,
+            details=f"Password reset for {target['role']} ({target['email']})",
+        )
+        return target
     def list_all_users(self, role: Optional[str] = None) -> List[Dict[str, Any]]:
         """Return all registered users with IST registration timestamps."""
         with self._get_conn() as conn:
@@ -458,7 +485,7 @@ class DatabaseService:
         performed_by: str,
         details: str = "",
     ) -> None:
-        """Record employee creation, KYC verification, or deletion in IST audit history."""
+        """Record employee creation, KYC verification, password reset, or deletion in IST audit history."""
         with self._get_conn() as conn:
             conn.execute(
                 """
@@ -620,7 +647,6 @@ class DatabaseService:
                 (new_balance, now_ist_str(), nri_user_id),
             )
         return new_balance
-
     def create_task(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         created_ts = now_ist_str()
         owner_id = payload.get("nri_user_id") or payload.get("booked_by_user_id")
