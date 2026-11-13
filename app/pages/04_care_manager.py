@@ -166,6 +166,8 @@ with st.form("field_visit_report_form"):
                 receipt_file.name,
                 receipt_file.type or "application/octet-stream",
             )
+        elif oop_inr > 0 and no_bill_voucher:
+            receipt_path = f"UNBILLED_VOUCHER: {unbilled_reason.strip()}"
 
         # Log vitals with full IST Date & Time
         vitals_payload = {
