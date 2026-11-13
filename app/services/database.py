@@ -41,6 +41,7 @@ class DatabaseService:
                     password_hash TEXT NOT NULL,
                     full_name TEXT NOT NULL,
                     role TEXT NOT NULL,
+                    customer_type TEXT DEFAULT 'NRI_SPONSOR',
                     phone TEXT NOT NULL,
                     whatsapp_number TEXT,
                     preferred_channels TEXT DEFAULT '["EMAIL", "WHATSAPP"]',
@@ -54,10 +55,13 @@ class DatabaseService:
                 CREATE TABLE IF NOT EXISTS parents (
                     id TEXT PRIMARY KEY,
                     nri_user_id TEXT NOT NULL,
+                    is_self_care INTEGER DEFAULT 0,
                     full_name TEXT NOT NULL,
                     age INTEGER NOT NULL,
                     city TEXT NOT NULL,
                     address TEXT NOT NULL,
+                    mobility_level TEXT DEFAULT 'INDEPENDENT',
+                    home_access_notes TEXT,
                     blood_group TEXT,
                     emergency_contact_india TEXT,
                     medical_conditions TEXT,
@@ -81,6 +85,9 @@ class DatabaseService:
                     title TEXT NOT NULL,
                     instructions TEXT,
                     scheduled_at TEXT NOT NULL,
+                    requires_wheelchair_cab INTEGER DEFAULT 0,
+                    requires_two_person_lift INTEGER DEFAULT 0,
+                    third_party_vendor_type TEXT,
                     status TEXT DEFAULT 'ASSIGNED',
                     gps_lat REAL,
                     gps_lng REAL,
@@ -136,9 +143,9 @@ class DatabaseService:
                 """
             )
 
-            # Auto-migrate missing columns across existing SQLite tables
             table_migrations = {
                 "users": {
+                    "customer_type": "TEXT DEFAULT 'NRI_SPONSOR'",
                     "whatsapp_number": "TEXT",
                     "preferred_channels": "TEXT DEFAULT '[\"EMAIL\", \"WHATSAPP\"]'",
                     "country": "TEXT DEFAULT 'USA'",
@@ -148,6 +155,9 @@ class DatabaseService:
                     "created_at": "TEXT",
                 },
                 "parents": {
+                    "is_self_care": "INTEGER DEFAULT 0",
+                    "mobility_level": "TEXT DEFAULT 'INDEPENDENT'",
+                    "home_access_notes": "TEXT",
                     "blood_group": "TEXT",
                     "emergency_contact_india": "TEXT",
                     "medical_conditions": "TEXT",
@@ -162,6 +172,9 @@ class DatabaseService:
                     "parent_name": "TEXT",
                     "care_manager_id": "TEXT",
                     "instructions": "TEXT",
+                    "requires_wheelchair_cab": "INTEGER DEFAULT 0",
+                    "requires_two_person_lift": "INTEGER DEFAULT 0",
+                    "third_party_vendor_type": "TEXT",
                     "gps_lat": "REAL",
                     "gps_lng": "REAL",
                     "checkin_time": "TEXT",
@@ -205,18 +218,28 @@ class DatabaseService:
                         conn.execute(
                             f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_def}"
                         )
+
             cur = conn.execute("SELECT COUNT(*) AS cnt FROM parents").fetchone()
             if cur["cnt"] == 0:
                 seed_ts = now_ist_str()
                 conn.execute(
-                    "INSERT INTO parents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    """
+                    INSERT INTO parents (
+                        id, nri_user_id, is_self_care, full_name, age, city, address,
+                        mobility_level, home_access_notes, blood_group,
+                        emergency_contact_india, medical_conditions, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
                     (
                         "par-01",
                         "usr-nri-101",
+                        0,
                         "Dr. Raghavendra Sharma",
                         74,
                         "Visakhapatnam",
                         "Flat 402, Sea Breeze Enclave, MVP Colony, Visakhapatnam",
+                        "WALKER_ASSISTED",
+                        "4th floor with elevator; security gate pass required",
                         "O+",
                         "+919848099887",
                         "Type 2 Diabetes, Mild Hypertension",
@@ -236,10 +259,10 @@ class DatabaseService:
                 conn.execute(
                     """
                     INSERT OR IGNORE INTO users (
-                        id, email, password_hash, full_name, role, phone,
+                        id, email, password_hash, full_name, role, customer_type, phone,
                         whatsapp_number, preferred_channels, country,
                         preferred_currency, kyc_verified, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         "usr-sysadmin-01",
@@ -247,6 +270,7 @@ class DatabaseService:
                         self._hash_password("SysAdmin@123"),
                         "Master System Admin",
                         "SYSTEM_ADMIN",
+                        "SYSTEM",
                         "+919848000001",
                         "+919848000001",
                         '["EMAIL", "WHATSAPP"]',
@@ -267,14 +291,25 @@ class DatabaseService:
         country: str = "USA",
         preferred_currency: str = "USD",
         preferred_channels: Optional[List[str]] = None,
+        customer_type: Optional[str] = None,
+        self_care_details: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Create a new user account in SQLite3 with IST registration timestamp."""
+        """Create a new user account (Indian Resident, NRI Sponsor, or Staff) with IST timestamp."""
         clean_email = email.strip().lower()
         channels = preferred_channels or ["EMAIL", "WHATSAPP"]
         user_id = f"usr-{uuid.uuid4().hex[:8]}"
         hashed_pw = self._hash_password(password)
         created_ts = now_ist_str()
-        is_verified = role in ("NRI", "SYSTEM_ADMIN", "ADMIN")
+
+        resolved_customer_type = customer_type or (
+            "INDIAN_RESIDENT" if country.strip().lower() == "india" else "NRI_SPONSOR"
+        )
+        if resolved_customer_type == "INDIAN_RESIDENT":
+            country = "India"
+            preferred_currency = "INR"
+
+        is_customer = role in ("INDRES_NRI", "NRI")
+        is_verified = is_customer or role in ("SYSTEM_ADMIN", "ADMIN")
 
         with self._get_conn() as conn:
             existing = conn.execute(
@@ -286,10 +321,10 @@ class DatabaseService:
             conn.execute(
                 """
                 INSERT INTO users (
-                    id, email, password_hash, full_name, role, phone,
+                    id, email, password_hash, full_name, role, customer_type, phone,
                     whatsapp_number, preferred_channels, country, preferred_currency,
                     kyc_verified, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     user_id,
@@ -297,6 +332,7 @@ class DatabaseService:
                     hashed_pw,
                     full_name.strip(),
                     role,
+                    resolved_customer_type if is_customer else "STAFF",
                     phone,
                     phone,
                     json.dumps(channels),
@@ -306,10 +342,37 @@ class DatabaseService:
                     created_ts,
                 ),
             )
-            if role == "NRI":
+            if is_customer:
                 conn.execute(
                     "INSERT OR IGNORE INTO wallets (nri_user_id, plan_tier, balance_inr, updated_at) VALUES (?, ?, ?, ?)",
                     (user_id, "PAY_AS_YOU_GO", 0.0, created_ts),
+                )
+
+            if is_customer and resolved_customer_type == "INDIAN_RESIDENT" and self_care_details:
+                self_id = f"par-{uuid.uuid4().hex[:6]}"
+                conn.execute(
+                    """
+                    INSERT INTO parents (
+                        id, nri_user_id, is_self_care, full_name, age, city, address,
+                        mobility_level, home_access_notes, blood_group,
+                        emergency_contact_india, medical_conditions, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        self_id,
+                        user_id,
+                        1,
+                        full_name.strip(),
+                        int(self_care_details.get("age", 60)),
+                        self_care_details.get("city", "Hyderabad"),
+                        self_care_details.get("address", ""),
+                        self_care_details.get("mobility_level", "WHEELCHAIR_REQUIRED"),
+                        self_care_details.get("home_access_notes", ""),
+                        self_care_details.get("blood_group", ""),
+                        self_care_details.get("emergency_contact_india", phone),
+                        self_care_details.get("medical_conditions", ""),
+                        created_ts,
+                    ),
                 )
 
         return {
@@ -317,6 +380,7 @@ class DatabaseService:
             "email": clean_email,
             "full_name": full_name.strip(),
             "role": role,
+            "customer_type": resolved_customer_type if is_customer else "STAFF",
             "phone": phone,
             "whatsapp_number": phone,
             "preferred_channels": channels,
@@ -352,11 +416,19 @@ class DatabaseService:
     def list_all_users(self, role: Optional[str] = None) -> List[Dict[str, Any]]:
         """Return all registered users with IST registration timestamps."""
         with self._get_conn() as conn:
-            if role:
+            if role in ("INDRES_NRI", "NRI"):
                 rows = conn.execute(
                     """
-                    SELECT id, email, full_name, role, phone, country, preferred_currency,
-                           kyc_verified, police_clearance_id, created_at
+                    SELECT id, email, full_name, role, customer_type, phone, country,
+                           preferred_currency, kyc_verified, police_clearance_id, created_at
+                    FROM users WHERE role IN ('INDRES_NRI', 'NRI') ORDER BY rowid DESC
+                    """
+                ).fetchall()
+            elif role:
+                rows = conn.execute(
+                    """
+                    SELECT id, email, full_name, role, customer_type, phone, country,
+                           preferred_currency, kyc_verified, police_clearance_id, created_at
                     FROM users WHERE role = ? ORDER BY rowid DESC
                     """,
                     (role,),
@@ -364,8 +436,8 @@ class DatabaseService:
             else:
                 rows = conn.execute(
                     """
-                    SELECT id, email, full_name, role, phone, country, preferred_currency,
-                           kyc_verified, police_clearance_id, created_at
+                    SELECT id, email, full_name, role, customer_type, phone, country,
+                           preferred_currency, kyc_verified, police_clearance_id, created_at
                     FROM users ORDER BY rowid DESC
                     """
                 ).fetchall()
@@ -438,27 +510,37 @@ class DatabaseService:
                 "SELECT * FROM staff_audit_logs ORDER BY id DESC"
             ).fetchall()
             return [dict(r) for r in rows]
+
     def add_parent(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Allow registered NRI users to add their parent's profile with IST timestamp."""
+        """Allow Indian Residents (self-care) or NRI Sponsors to add a care recipient profile."""
         parent_id = f"par-{uuid.uuid4().hex[:6]}"
         created_ts = now_ist_str()
+        owner_id = payload.get("nri_user_id") or payload.get("account_user_id")
+        is_self = 1 if payload.get("is_self_care") else 0
+
         payload["id"] = parent_id
+        payload["nri_user_id"] = owner_id
         payload["created_at"] = created_ts
+
         with self._get_conn() as conn:
             conn.execute(
                 """
                 INSERT INTO parents (
-                    id, nri_user_id, full_name, age, city, address,
-                    blood_group, emergency_contact_india, medical_conditions, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    id, nri_user_id, is_self_care, full_name, age, city, address,
+                    mobility_level, home_access_notes, blood_group,
+                    emergency_contact_india, medical_conditions, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     parent_id,
-                    payload["nri_user_id"],
+                    owner_id,
+                    is_self,
                     payload["full_name"],
                     int(payload["age"]),
                     payload["city"],
                     payload["address"],
+                    payload.get("mobility_level", "INDEPENDENT"),
+                    payload.get("home_access_notes", ""),
                     payload.get("blood_group", ""),
                     payload.get("emergency_contact_india", ""),
                     payload.get("medical_conditions", ""),
@@ -467,6 +549,8 @@ class DatabaseService:
             )
         return payload
 
+    add_care_recipient = add_parent
+
     def get_parents_for_nri(self, nri_user_id: str) -> List[Dict[str, Any]]:
         with self._get_conn() as conn:
             rows = conn.execute(
@@ -474,22 +558,28 @@ class DatabaseService:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    get_recipients_for_user = get_parents_for_nri
+
     def list_all_parents_with_nri(self) -> List[Dict[str, Any]]:
-        """Return every registered parent alongside their linked NRI family member."""
+        """Return every registered care recipient alongside their linked Resident or NRI account."""
         with self._get_conn() as conn:
             rows = conn.execute(
                 """
                 SELECT
                     p.id AS parent_id,
                     p.full_name AS parent_name,
+                    p.is_self_care,
                     p.age,
                     p.city,
                     p.address,
+                    p.mobility_level,
+                    p.home_access_notes,
                     p.blood_group,
                     p.emergency_contact_india,
                     p.medical_conditions,
                     p.created_at,
                     p.nri_user_id,
+                    COALESCE(u.customer_type, 'NRI_SPONSOR') AS customer_type,
                     COALESCE(u.full_name, 'Arjun Sharma (Demo)') AS nri_name,
                     COALESCE(u.email, 'arjun.sharma@example.com') AS nri_email,
                     COALESCE(u.phone, '+14155550199') AS nri_phone
@@ -507,6 +597,18 @@ class DatabaseService:
             ).fetchone()
             return dict(row) if row else {"plan_tier": "PAY_AS_YOU_GO", "balance_inr": 0.0, "updated_at": now_ist_str()}
 
+    def update_wallet_plan(self, nri_user_id: str, plan_tier: str) -> None:
+        """Update the subscription plan tier for an Indian Resident or NRI account."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO wallets (nri_user_id, plan_tier, balance_inr, updated_at)
+                VALUES (?, ?, 0.0, ?)
+                ON CONFLICT(nri_user_id) DO UPDATE SET plan_tier = excluded.plan_tier, updated_at = excluded.updated_at
+                """,
+                (nri_user_id, plan_tier, now_ist_str()),
+            )
+
     def update_wallet_balance(self, nri_user_id: str, delta_inr: float) -> float:
         wallet = self.get_wallet(nri_user_id)
         new_balance = round(float(wallet.get("balance_inr", 0.0)) + delta_inr, 2)
@@ -521,29 +623,39 @@ class DatabaseService:
 
     def create_task(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         created_ts = now_ist_str()
+        owner_id = payload.get("nri_user_id") or payload.get("booked_by_user_id")
+        recipient_id = payload.get("parent_id") or payload.get("recipient_id")
+
         with self._get_conn() as conn:
             count_row = conn.execute("SELECT COUNT(*) AS cnt FROM tasks").fetchone()
             task_id = payload.get("id") or f"TSK-{1001 + count_row['cnt']}"
             payload["id"] = task_id
+            payload["nri_user_id"] = owner_id
+            payload["parent_id"] = recipient_id
             payload["created_at"] = created_ts
             conn.execute(
                 """
                 INSERT INTO tasks (
                     id, nri_user_id, parent_id, parent_name, care_manager_id,
-                    category, title, instructions, scheduled_at, status,
+                    category, title, instructions, scheduled_at,
+                    requires_wheelchair_cab, requires_two_person_lift,
+                    third_party_vendor_type, status,
                     service_fee_inr, out_of_pocket_inr, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task_id,
-                    payload["nri_user_id"],
-                    payload["parent_id"],
+                    owner_id,
+                    recipient_id,
                     payload.get("parent_name", ""),
                     payload.get("care_manager_id", "usr-cm-201"),
                     payload["category"],
                     payload["title"],
                     payload.get("instructions", ""),
                     payload["scheduled_at"],
+                    1 if payload.get("requires_wheelchair_cab") else 0,
+                    1 if payload.get("requires_two_person_lift") else 0,
+                    payload.get("third_party_vendor_type", ""),
                     payload.get("status", "ASSIGNED"),
                     float(payload.get("service_fee_inr", 0.0)),
                     float(payload.get("out_of_pocket_inr", 0.0)),
@@ -560,9 +672,51 @@ class DatabaseService:
                 (care_manager_id, task_id),
             )
 
+    def update_task_completion(
+        self,
+        task_id: str,
+        status: str = "COMPLETED",
+        gps_lat: Optional[float] = None,
+        gps_lng: Optional[float] = None,
+        service_fee_inr: Optional[float] = None,
+        out_of_pocket_inr: Optional[float] = None,
+        receipt_url: Optional[str] = None,
+        receipt_verified: Optional[bool] = None,
+        completion_notes: Optional[str] = None,
+    ) -> None:
+        """Update GPS check-in, receipt upload, actuals, and completion notes for a visit."""
+        updates: List[str] = ["status = ?"]
+        params: List[Any] = [status]
+
+        if gps_lat is not None and gps_lng is not None:
+            updates.extend(["gps_lat = ?", "gps_lng = ?", "checkin_time = ?"])
+            params.extend([gps_lat, gps_lng, now_ist_str()])
+        if service_fee_inr is not None:
+            updates.append("service_fee_inr = ?")
+            params.append(float(service_fee_inr))
+        if out_of_pocket_inr is not None:
+            updates.append("out_of_pocket_inr = ?")
+            params.append(float(out_of_pocket_inr))
+        if receipt_url is not None:
+            updates.append("receipt_url = ?")
+            params.append(receipt_url)
+        if receipt_verified is not None:
+            updates.append("receipt_verified = ?")
+            params.append(1 if receipt_verified else 0)
+        if completion_notes is not None:
+            updates.append("completion_notes = ?")
+            params.append(completion_notes)
+
+        params.append(task_id)
+        with self._get_conn() as conn:
+            conn.execute(
+                f"UPDATE tasks SET {', '.join(updates)} WHERE id = ?",
+                tuple(params),
+            )
+
     def list_tasks(self, role: str, user_id: str) -> List[Dict[str, Any]]:
         with self._get_conn() as conn:
-            if role == "NRI":
+            if role in ("INDRES_NRI", "NRI"):
                 rows = conn.execute(
                     "SELECT * FROM tasks WHERE nri_user_id = ? ORDER BY rowid DESC", (user_id,)
                 ).fetchall()
@@ -591,7 +745,7 @@ class DatabaseService:
                     invoice_payload["invoice_number"],
                     invoice_payload["nri_user_id"],
                     invoice_payload.get("task_id"),
-                    invoice_payload.get("currency", "USD"),
+                    invoice_payload.get("currency", "INR"),
                     float(invoice_payload.get("service_fee_inr", 0.0)),
                     float(invoice_payload.get("out_of_pocket_inr", 0.0)),
                     float(invoice_payload.get("gst_inr", 0.0)),
