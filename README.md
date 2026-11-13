@@ -211,12 +211,13 @@ pytest -v tests/
 > **Important Notice:** This platform facilitates non-clinical care coordination, errand management, and home health monitoring. In the event of a critical medical emergency, local Care Managers coordinate immediate transport to the family's designated hospital, while all clinical diagnoses and treatments remain solely under the supervision of licensed medical practitioners.
 
 ---
-## 📄 License & Copyright
+## 🛡️ License, Copyright & Compliance Notices
 
-> ⚠️ **IMPORTANT COPYRIGHT NOTICE**
-> 
-> **All Rights Reserved © 2026 T A Srinivas.**
-> This repository is strictly for portfolio viewing purposes. **DO NOT COPY, CLONE, OR REDISTRIBUTE** this code. Stolen copies or unauthorized forks will be reported immediately for a GitHub copyright takedown.
+**All Rights Reserved © 2026 T A Srinivas.**
+
+> **Strict Intellectual Property Notice:** This repository is strictly for portfolio viewing and technical evaluation purposes. **DO NOT COPY, CLONE, FORK, OR REDISTRIBUTE** this source code, architecture, or documentation. Stolen copies or unauthorized forks will be reported immediately for a **GitHub DMCA copyright takedown**.
+
+For corporate licensing, enterprise deployment, or commercial inquiries, please contact **`tasrinivass@gmail.com`**.
 
 * **Lead Architect & Developer:** [Srinivasta](https://github.com/SRINIVASTA)
 
