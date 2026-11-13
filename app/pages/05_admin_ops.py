@@ -23,7 +23,7 @@ st.title("Admin Operations, Member Directory & Dispatch Console")
 
 tab_dir, tab_audit, tab_kyc, tab_billing, tab_create_emp = st.tabs(
     [
-        "👥 Members, Parents & Staff Directory",
+        "👥 Residents, Families & Staff Directory",
         "🛵 Task Dispatch & Actuals Audit",
         "🪪 Staff KYC & Police Clearance",
         "🧾 Invoice Ledger & Re-Send",
@@ -31,17 +31,20 @@ tab_dir, tab_audit, tab_kyc, tab_billing, tab_create_emp = st.tabs(
     ]
 )
 
-# TAB 1: Complete Directory of NRI Members, Linked Parents, and Staff
+# TAB 1: Complete Directory of Indian Residents, NRI Families, and Staff
 with tab_dir:
-    st.subheader("Registered NRI Families & Linked Parents in India")
+    st.subheader("Registered Care Recipients (Indian Residents & NRI-Sponsored Parents)")
     parents_with_nri = db.list_all_parents_with_nri()
     if parents_with_nri:
         df_parents = pd.DataFrame(parents_with_nri)[
             [
                 "parent_id",
                 "parent_name",
+                "customer_type",
                 "age",
                 "city",
+                "mobility_level",
+                "home_access_notes",
                 "blood_group",
                 "medical_conditions",
                 "emergency_contact_india",
@@ -52,22 +55,24 @@ with tab_dir:
         ]
         st.dataframe(df_parents, use_container_width=True, hide_index=True)
     else:
-        st.info("No parents registered yet.")
+        st.info("No care recipients registered yet.")
 
     st.divider()
     col_nri, col_staff = st.columns(2)
 
     with col_nri:
-        st.subheader("All Registered NRI Members")
-        nri_list = db.list_all_users("NRI")
-        if nri_list:
+        st.subheader("All Registered Customers (Indian Residents & NRIs)")
+        customer_list = db.list_all_users("INDRES_NRI")
+        if customer_list:
             st.dataframe(
-                pd.DataFrame(nri_list)[["id", "full_name", "email", "phone", "country", "preferred_currency"]],
+                pd.DataFrame(customer_list)[
+                    ["id", "full_name", "customer_type", "email", "phone", "country", "preferred_currency"]
+                ],
                 use_container_width=True,
                 hide_index=True,
             )
         else:
-            st.caption("Only built-in Demo NRI (`Arjun Sharma`) active. New signups will appear here.")
+            st.caption("Only built-in Demo Customers active. New signups will appear here.")
 
     with col_staff:
         st.subheader("All Care Managers (Sahayaks) & Admins")
@@ -78,13 +83,14 @@ with tab_dir:
         )
         if staff_list:
             st.dataframe(
-                pd.DataFrame(staff_list)[["id", "full_name", "role", "phone", "kyc_verified", "police_clearance_id"]],
+                pd.DataFrame(staff_list)[
+                    ["id", "full_name", "role", "phone", "kyc_verified", "police_clearance_id"]
+                ],
                 use_container_width=True,
                 hide_index=True,
             )
         else:
             st.caption("No staff accounts found.")
-
 # TAB 2: Assign Tasks to Care Managers & Settle Prepaid Wallet Actuals
 with tab_audit:
     st.subheader("Assign Care Managers (Sahayaks) & Audit Out-of-Pocket Receipts")
@@ -104,9 +110,19 @@ with tab_audit:
             with st.container(border=True):
                 c1, c2, c3 = st.columns([2.8, 2.2, 1.8])
                 c1.markdown(f"**{t['id']} — {t['title']}** (`{t['status']}`)")
+
+                mobility_tags = []
+                if t.get("requires_wheelchair_cab"):
+                    mobility_tags.append("♿ Wheelchair Cab")
+                if t.get("requires_two_person_lift"):
+                    mobility_tags.append("🧑‍🤝‍🧑 2-Person Lift")
+                if t.get("third_party_vendor_type"):
+                    mobility_tags.append(f"🩺 {t['third_party_vendor_type']}")
+                tag_line = f" | {' • '.join(mobility_tags)}" if mobility_tags else ""
+
                 c1.caption(
-                    f"Parent: {t.get('parent_name', 'N/A')} | Scheduled: {t['scheduled_at']} | "
-                    f"Assigned ID: `{t.get('care_manager_id', 'Unassigned')}`"
+                    f"Recipient: {t.get('parent_name', 'N/A')} | Scheduled: {t['scheduled_at']} | "
+                    f"Assigned ID: `{t.get('care_manager_id', 'Unassigned')}`{tag_line}"
                 )
 
                 current_idx = next(
@@ -126,8 +142,8 @@ with tab_audit:
                         recipient=chosen_cm,
                         subject=f"New CareBridge Assignment: {t['id']}",
                         summary_text=(
-                            f"Task '{t['title']}' for {t.get('parent_name', 'Parent')} "
-                            f"scheduled at {t['scheduled_at']} has been assigned to you."
+                            f"Task '{t['title']}' for {t.get('parent_name', 'Care Recipient')} "
+                            f"scheduled at {t['scheduled_at']} has been assigned to you.{tag_line}"
                         ),
                     )
                     st.success(f"Assigned **{t['id']}** to **{chosen_cm['full_name']}**!")
@@ -137,7 +153,7 @@ with tab_audit:
                     f"Fee: ₹{float(t.get('service_fee_inr', 0)):,.0f} | "
                     f"Actuals: ₹{float(t.get('out_of_pocket_inr', 0)):,.0f}"
                 )
-                if t.get("out_of_pocket_inr", 0) > 0 and not t.get("wallet_settled"):
+                if t.get("out_of_pocket_inr", 0) > 0 and not t.get("receipt_verified"):
                     if c3.button(
                         "Approve & Deduct Wallet",
                         key=f"settle_{t['id']}",
@@ -148,14 +164,17 @@ with tab_audit:
                             new_bal = db.update_wallet_balance(
                                 t["nri_user_id"], -float(t["out_of_pocket_inr"])
                             )
-                            t["wallet_settled"] = True
-                            t["receipt_verified"] = True
+                            db.update_task_completion(
+                                task_id=t["id"],
+                                status=t.get("status", "COMPLETED"),
+                                receipt_verified=True,
+                            )
                             st.success(f"Settled ₹{t['out_of_pocket_inr']:,.2f}. Wallet: ₹{new_bal:,.2f}")
+                            st.rerun()
                         except ValueError as exc:
                             st.error(str(exc))
                 else:
                     c3.caption("✅ Verified / No Pending Actuals")
-
 # TAB 3: Ground Staff KYC & Police Verification
 with tab_kyc:
     st.subheader("Care Manager (Sahayak) Background & Police Clearance")
@@ -198,31 +217,45 @@ with tab_kyc:
 
         if st.session_state.get("last_kyc_msg"):
             st.success(st.session_state["last_kyc_msg"])
+
 # TAB 4: Invoice Ledger & Multi-Channel Dispatch
 with tab_billing:
-    st.subheader("Issued Invoices — Download or Re-Dispatch to NRI")
+    st.subheader("Issued Invoices — Download or Re-Dispatch to Customer")
     invoices = db.list_invoices()
-    nri_user = DEMO_USERS["NRI"]
+    all_users_map = {u["id"]: u for u in db.list_all_users()}
+    all_tasks_map = {t["id"]: t for t in db.list_tasks("ADMIN", admin["id"])}
+    all_parents_map = {p["parent_id"]: p for p in db.list_all_parents_with_nri()}
 
     if not invoices:
-        st.info("No invoices logged yet. Complete a visit in Care Manager or generate one from NRI Dashboard.")
+        st.info("No invoices logged yet. Complete a visit in Care Manager or generate one from the Care Dashboard.")
     else:
         for inv in invoices:
             with st.container(border=True):
                 i1, i2, i3 = st.columns([3, 1.5, 1.5])
                 i1.markdown(f"**{inv['invoice_number']}** (Task: `{inv.get('task_id', 'N/A')}`)")
                 i1.caption(
-                    f"Total: {format_currency(float(inv['total_inr']), inv.get('currency', 'USD'))} | "
+                    f"Total: {format_currency(float(inv['total_inr']), inv.get('currency', 'INR'))} | "
                     f"Dispatched via: {', '.join(inv.get('dispatched_channels', [])) or 'Archived'}"
                 )
 
+                cust_user = all_users_map.get(inv.get("nri_user_id")) or DEMO_USERS["INDRES_NRI"]
+                linked_task = all_tasks_map.get(inv.get("task_id"), {})
+                linked_parent = all_parents_map.get(linked_task.get("parent_id"), {})
+
+                recipient_name = (
+                    linked_parent.get("parent_name")
+                    or linked_task.get("parent_name")
+                    or cust_user["full_name"]
+                )
+                recipient_city = linked_parent.get("city", "India")
+
                 pdf_bytes = generate_invoice_pdf(
                     invoice_number=inv["invoice_number"],
-                    nri_name=nri_user["full_name"],
-                    nri_email=nri_user["email"],
-                    parent_name="Dr. Raghavendra Sharma",
-                    parent_city="Visakhapatnam",
-                    currency=inv.get("currency", "USD"),
+                    nri_name=cust_user["full_name"],
+                    nri_email=cust_user["email"],
+                    parent_name=recipient_name,
+                    parent_city=recipient_city,
+                    currency=inv.get("currency", "INR"),
                     line_items=[
                         {
                             "description": f"CareBridge Care Service ({inv.get('task_id')})",
@@ -252,14 +285,13 @@ with tab_billing:
                         float(inv.get("out_of_pocket_inr", 0)),
                     )
                     channels = notifier.dispatch_to_available_channels(
-                        recipient=nri_user,
+                        recipient=cust_user,
                         subject=f"CareBridge India Tax Invoice {inv['invoice_number']}",
                         summary_text=f"Attached invoice {inv['invoice_number']} for INR {totals['total_inr']:,.2f}.",
                         pdf_bytes=pdf_bytes,
                         pdf_filename=f"{inv['invoice_number']}.pdf",
                     )
                     st.success(f"Dispatched via: {', '.join(channels) if channels else 'SMTP/Twilio not configured'}")
-
 # TAB 5: System Admin Employee Management (Add, Delete & Audit History)
 with tab_create_emp:
     st.subheader("Provision or Remove Employee Accounts & View History")
