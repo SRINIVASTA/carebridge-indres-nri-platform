@@ -4,11 +4,12 @@ import streamlit as st
 
 
 DEMO_USERS: Dict[str, Dict[str, Any]] = {
-    "NRI": {
+    "INDRES_NRI": {
         "id": "usr-nri-101",
         "email": "arjun.sharma@example.com",
         "full_name": "Arjun Sharma",
-        "role": "NRI",
+        "role": "INDRES_NRI",
+        "customer_type": "NRI_SPONSOR",
         "phone": "+14155550199",
         "whatsapp_number": "+14155550199",
         "preferred_channels": ["EMAIL", "WHATSAPP", "SMS"],
@@ -16,11 +17,25 @@ DEMO_USERS: Dict[str, Dict[str, Any]] = {
         "preferred_currency": "USD",
         "kyc_verified": True,
     },
+    "INDIAN_RESIDENT": {
+        "id": "usr-indres-102",
+        "email": "lakshmi.rao@example.com",
+        "full_name": "Smt. Lakshmi Narayana Rao",
+        "role": "INDRES_NRI",
+        "customer_type": "INDIAN_RESIDENT",
+        "phone": "+919848022334",
+        "whatsapp_number": "+919848022334",
+        "preferred_channels": ["WHATSAPP", "SMS"],
+        "country": "India",
+        "preferred_currency": "INR",
+        "kyc_verified": True,
+    },
     "CARE_MANAGER": {
         "id": "usr-cm-201",
         "email": "ravi.sahayak@carebridgeindia.com",
         "full_name": "Ravi Kumar (Senior Sahayak)",
         "role": "CARE_MANAGER",
+        "customer_type": "STAFF",
         "phone": "+919848012345",
         "whatsapp_number": "+919848012345",
         "preferred_channels": ["WHATSAPP", "SMS"],
@@ -34,6 +49,7 @@ DEMO_USERS: Dict[str, Dict[str, Any]] = {
         "email": "ops@carebridgeindia.com",
         "full_name": "Priya Nair (Operations Lead)",
         "role": "ADMIN",
+        "customer_type": "STAFF",
         "phone": "+919849054321",
         "whatsapp_number": "+919849054321",
         "preferred_channels": ["EMAIL", "WHATSAPP"],
@@ -42,6 +58,8 @@ DEMO_USERS: Dict[str, Dict[str, Any]] = {
         "kyc_verified": True,
     },
 }
+# Backward-compatible alias
+DEMO_USERS["NRI"] = DEMO_USERS["INDRES_NRI"]
 
 
 def init_session_state() -> None:
@@ -50,16 +68,18 @@ def init_session_state() -> None:
     st.session_state.setdefault("current_user", None)
     st.session_state.setdefault("currency", "USD")
 
-    # Seed initial demo data so all pages work out-of-the-box before Supabase setup
     if "demo_parents" not in st.session_state:
         st.session_state["demo_parents"] = [
             {
                 "id": "par-01",
                 "nri_user_id": "usr-nri-101",
+                "is_self_care": 0,
                 "full_name": "Dr. Raghavendra Sharma",
                 "age": 74,
                 "city": "Visakhapatnam",
                 "address": "Flat 402, Sea Breeze Enclave, MVP Colony, Visakhapatnam",
+                "mobility_level": "WALKER_ASSISTED",
+                "home_access_notes": "4th floor with elevator; security gate pass required",
                 "blood_group": "O+",
                 "emergency_contact_india": "+919848099887",
                 "medical_conditions": "Type 2 Diabetes, Mild Hypertension",
@@ -67,13 +87,30 @@ def init_session_state() -> None:
             {
                 "id": "par-02",
                 "nri_user_id": "usr-nri-101",
+                "is_self_care": 0,
                 "full_name": "Smt. Meenakshi Sharma",
                 "age": 69,
                 "city": "Visakhapatnam",
                 "address": "Flat 402, Sea Breeze Enclave, MVP Colony, Visakhapatnam",
+                "mobility_level": "WHEELCHAIR_REQUIRED",
+                "home_access_notes": "Needs wheelchair ramp at lobby entrance",
                 "blood_group": "B+",
                 "emergency_contact_india": "+919848099887",
                 "medical_conditions": "Osteoarthritis (Knee)",
+            },
+            {
+                "id": "par-03",
+                "nri_user_id": "usr-indres-102",
+                "is_self_care": 1,
+                "full_name": "Smt. Lakshmi Narayana Rao",
+                "age": 67,
+                "city": "Hyderabad",
+                "address": "Plot 18, Road No. 4, Banjara Hills, Hyderabad",
+                "mobility_level": "WHEELCHAIR_REQUIRED",
+                "home_access_notes": "Ground floor residence; wheelchair cab needed for hospital visits",
+                "blood_group": "A+",
+                "emergency_contact_india": "+919848022334",
+                "medical_conditions": "Post-Hip Replacement Recovery",
             },
         ]
 
@@ -94,6 +131,9 @@ def init_session_state() -> None:
                 "title": "Cardiology Follow-up at Apollo Health City",
                 "instructions": "Collect fasting lipid profile and accompany for 10:30 AM consult.",
                 "scheduled_at": (now + timedelta(days=1)).strftime("%Y-%m-%d %H:%M"),
+                "requires_wheelchair_cab": 0,
+                "requires_two_person_lift": 0,
+                "third_party_vendor_type": "",
                 "status": "ASSIGNED",
                 "service_fee_inr": 1500.0,
                 "out_of_pocket_inr": 0.0,
@@ -109,6 +149,9 @@ def init_session_state() -> None:
                 "title": "Weekly Home Vitals & Physiotherapy Check",
                 "instructions": "Log BP, blood sugar, and monthly pharmacy refill.",
                 "scheduled_at": (now - timedelta(days=2)).strftime("%Y-%m-%d %H:%M"),
+                "requires_wheelchair_cab": 1,
+                "requires_two_person_lift": 0,
+                "third_party_vendor_type": "Physiotherapist",
                 "status": "COMPLETED",
                 "gps_lat": 17.7412,
                 "gps_lng": 83.3341,
@@ -178,7 +221,11 @@ def require_role(allowed_roles: List[str]) -> Dict[str, Any]:
         st.stop()
 
     user = st.session_state["current_user"]
-    if user.get("role") not in allowed_roles:
+    expanded_allowed = set(allowed_roles)
+    if "INDRES_NRI" in expanded_allowed or "NRI" in expanded_allowed:
+        expanded_allowed.update({"INDRES_NRI", "NRI"})
+
+    if user.get("role") not in expanded_allowed:
         st.error(
             f"Access Denied: Your role (**{user.get('role')}**) does not have permission for this module."
         )
