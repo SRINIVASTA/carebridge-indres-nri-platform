@@ -292,11 +292,11 @@ with tab_billing:
                         pdf_filename=f"{inv['invoice_number']}.pdf",
                     )
                     st.success(f"Dispatched via: {', '.join(channels) if channels else 'SMTP/Twilio not configured'}")
-# TAB 5: System Admin Employee Management, Password Reset & Audit History
+# TAB 5: System Admin Employee Management, Password Reset, Audit History & DB Table Viewer
 with tab_create_emp:
-    st.subheader("Provision or Remove Employee Accounts, Reset Passwords & View History")
+    st.subheader("Provision or Remove Employee Accounts, Reset Passwords & Inspect Database")
     if admin.get("role") != "SYSTEM_ADMIN":
-        st.warning("🔒 Restricted: Only the **System Admin** (`SYSTEM_ADMIN`) can manage employee logins or reset passwords.")
+        st.warning("🔒 Restricted: Only the **System Admin** (`SYSTEM_ADMIN`) can manage employee logins, reset passwords, or inspect raw database tables.")
     else:
         col_add, col_del = st.columns([1.4, 1.0])
 
@@ -420,7 +420,7 @@ with tab_create_emp:
                 except ValueError as exc:
                     st.error(str(exc))
 
-        # Bottom Section: Complete Employee & Password Audit History
+        # Audit History Section
         st.divider()
         st.markdown("#### 📜 Employee Creation, KYC, Password Reset & Deletion History (IST)")
         audit_logs = db.list_staff_audit_logs()
@@ -442,3 +442,29 @@ with tab_create_emp:
             )
         else:
             st.caption("No employee actions recorded yet. Created, verified, or deleted staff will appear here.")
+
+        # Bottom Section: Live SQLite3 Database Table Viewer
+        st.divider()
+        st.markdown("#### 🗄️ Live SQLite3 Database Table Viewer (`carebridge.db`)")
+        table_names = [
+            "users",
+            "parents",
+            "wallets",
+            "tasks",
+            "invoices",
+            "vitals_logs",
+            "staff_audit_logs",
+        ]
+        selected_table = st.selectbox(
+            "Select SQLite3 Table to Inspect", table_names, key="db_table_viewer_sel"
+        )
+        with db._get_conn() as conn:
+            table_rows = conn.execute(f"SELECT * FROM {selected_table} ORDER BY rowid DESC").fetchall()
+            if table_rows:
+                df_table = pd.DataFrame([dict(r) for r in table_rows])
+                if "password_hash" in df_table.columns:
+                    df_table["password_hash"] = "***HASHED***"
+                st.caption(f"Showing **{len(df_table)}** row(s) in `{selected_table}`")
+                st.dataframe(df_table, use_container_width=True, hide_index=True)
+            else:
+                st.info(f"Table `{selected_table}` exists and is currently empty (0 rows).")
