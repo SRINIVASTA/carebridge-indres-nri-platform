@@ -15,26 +15,28 @@ def load_custom_css() -> None:
     css_path = Path(__file__).parent / "assets" / "styles.css"
     if css_path.exists():
         st.markdown(f"<style>{css_path.read_text()}</style>", unsafe_allow_html=True)
+
+
 def render_gateway_home() -> None:
     """Landing / Login view shown when not signed in or on Home."""
-    st.title("🩺 CareBridge India — NRI Parent Care & Concierge")
+    st.title("🩺 CareBridge India — Resident Mobility & NRI Parent Care")
     st.caption(f"Current India Time: `{now_ist_str()}`")
     st.markdown(
-        "Trusted medical escorting, home vitals monitoring, itemized PDF invoicing, "
-        "and verified local Care Managers (*Sahayaks*) for your parents in India."
+        "Trusted mobility assistance, medical escorting, home vitals monitoring, "
+        "itemized PDF invoicing, and verified local Care Managers (*Sahayaks*) across India."
     )
 
     if not st.session_state.get("authenticated"):
         render_auth_portal()
     else:
         user = st.session_state["current_user"]
-        st.success(f"Signed in as **{user['full_name']}** (`{user['role']}`)")
+        ctype = user.get("customer_type", "")
+        badge = f" ({ctype.replace('_', ' ').title()})" if ctype and ctype != "STAFF" else ""
+        st.success(f"Signed in as **{user['full_name']}** (`{user['role']}`{badge})")
         st.info("Use the navigation menu on the left to open your role-specific workspace.")
-
-
 def main() -> None:
     st.set_page_config(
-        page_title="CareBridge India — NRI Parent Care & Concierge",
+        page_title="CareBridge India — Resident Mobility & NRI Parent Care",
         page_icon="🩺",
         layout="wide",
         initial_sidebar_state="expanded",
@@ -42,20 +44,24 @@ def main() -> None:
     load_custom_css()
     init_session_state()
 
+    user = st.session_state.get("current_user") or {}
+    is_ind_res = user.get("customer_type") == "INDIAN_RESIDENT"
+    dashboard_title = "My Care & Mobility Dashboard" if is_ind_res else "Family & Resident Care Dashboard"
+
     # Define all pages
     home_page = st.Page(render_gateway_home, title="Home / Sign In", icon="🔐", default=True)
     plans_page = st.Page("pages/01_plans_and_pricing.py", title="Plans & Pricing", icon="💳")
-    nri_page = st.Page("pages/02_nri_dashboard.py", title="NRI Family Dashboard", icon="🏠")
+    nri_page = st.Page("pages/02_nri_dashboard.py", title=dashboard_title, icon="🏠")
     vault_page = st.Page("pages/03_health_vault.py", title="Health & Document Vault", icon="🩺")
     cm_page = st.Page("pages/04_care_manager.py", title="Care Manager Field Portal", icon="🛵")
     admin_page = st.Page("pages/05_admin_ops.py", title="Admin Operations Console", icon="🛡️")
 
     # Build strict role-based navigation menu
-    if not st.session_state.get("authenticated") or not st.session_state.get("current_user"):
+    if not st.session_state.get("authenticated") or not user:
         allowed_pages = [home_page, plans_page]
     else:
-        role = st.session_state["current_user"].get("role")
-        if role == "NRI":
+        role = user.get("role")
+        if role in ("INDRES_NRI", "NRI"):
             allowed_pages = [nri_page, vault_page, plans_page]
         elif role == "CARE_MANAGER":
             allowed_pages = [cm_page, vault_page]
@@ -68,18 +74,30 @@ def main() -> None:
     # Sidebar: Currency Switcher, Active Profile & Sign Out
     with st.sidebar:
         st.caption(f"🕒 `{now_ist_str()}`")
+        currencies = ["USD", "INR", "GBP", "EUR"]
+        default_curr = st.session_state.get("currency", "INR" if is_ind_res else "USD")
+        if default_curr not in currencies:
+            default_curr = "INR"
+
         currency = st.selectbox(
             "Display Currency",
-            ["USD", "INR", "GBP", "EUR"],
-            index=["USD", "INR", "GBP", "EUR"].index(st.session_state.get("currency", "USD")),
+            currencies,
+            index=currencies.index(default_curr),
         )
         st.session_state["currency"] = currency
 
-        if st.session_state.get("authenticated") and st.session_state.get("current_user"):
-            user = st.session_state["current_user"]
+        if st.session_state.get("authenticated") and user:
             st.divider()
             st.success(f"**{user['full_name']}**")
-            st.caption(f"Role: `{user['role']}`")
+            ctype = user.get("customer_type")
+            role_label = (
+                "Indian Resident"
+                if ctype == "INDIAN_RESIDENT"
+                else "NRI Sponsor"
+                if ctype == "NRI_SPONSOR"
+                else user.get("role")
+            )
+            st.caption(f"Account: `{role_label}`")
 
             updated_channels = st.multiselect(
                 "Delivery Channels",
