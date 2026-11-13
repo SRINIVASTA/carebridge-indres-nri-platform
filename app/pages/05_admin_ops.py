@@ -292,11 +292,11 @@ with tab_billing:
                         pdf_filename=f"{inv['invoice_number']}.pdf",
                     )
                     st.success(f"Dispatched via: {', '.join(channels) if channels else 'SMTP/Twilio not configured'}")
-# TAB 5: System Admin Employee Management (Add, Delete & Audit History)
+# TAB 5: System Admin Employee Management, Password Reset & Audit History
 with tab_create_emp:
-    st.subheader("Provision or Remove Employee Accounts & View History")
+    st.subheader("Provision or Remove Employee Accounts, Reset Passwords & View History")
     if admin.get("role") != "SYSTEM_ADMIN":
-        st.warning("🔒 Restricted: Only the **System Admin** (`SYSTEM_ADMIN`) can add or delete employee logins.")
+        st.warning("🔒 Restricted: Only the **System Admin** (`SYSTEM_ADMIN`) can manage employee logins or reset passwords.")
     else:
         col_add, col_del = st.columns([1.4, 1.0])
 
@@ -327,7 +327,7 @@ with tab_create_emp:
                     valid_phone, fmt_phone = validate_international_phone(emp_phone)
                     if not emp_name.strip() or not emp_email.strip():
                         st.error("Employee name and email are required.")
-                    elif len(emp_pw) < 6:
+                    elif len(emp_pw.strip()) < 6:
                         st.error("Temporary password must be at least 6 characters.")
                     elif not valid_phone:
                         st.error(fmt_phone)
@@ -335,7 +335,7 @@ with tab_create_emp:
                         try:
                             new_emp = db.register_user(
                                 email=emp_email,
-                                password=emp_pw,
+                                password=emp_pw.strip(),
                                 full_name=emp_name,
                                 role=emp_role,
                                 phone=fmt_phone,
@@ -389,9 +389,40 @@ with tab_create_emp:
                         except ValueError as exc:
                             st.error(str(exc))
 
-        # Bottom Section: Complete Employee Audit History
+        # Middle Section: Reset Password for Any Existing Customer or Employee
         st.divider()
-        st.markdown("#### 📜 Employee Creation, KYC & Deletion History (IST)")
+        st.markdown("#### 🔑 Reset Password for Any Existing User (Customers & Staff)")
+        all_registered_users = db.list_all_users()
+        if all_registered_users:
+            reset_map = {
+                f"{u['full_name']} [{u['role']}] — {u['email']}": u for u in all_registered_users
+            }
+            r1, r2, r3 = st.columns([2.2, 1.5, 1.2])
+            chosen_reset_label = r1.selectbox(
+                "Select User Account", list(reset_map.keys()), key="reset_pw_user_sel"
+            )
+            new_reset_pw = r2.text_input(
+                "New Password (min 6 chars)", type="password", key="reset_pw_input"
+            )
+            r3.write("")
+            r3.write("")
+            if r3.button("Reset Password", type="primary", use_container_width=True, key="reset_pw_btn"):
+                target_u = reset_map[chosen_reset_label]
+                try:
+                    db.reset_user_password(
+                        target_u["id"],
+                        new_reset_pw,
+                        performed_by=f"{admin['full_name']} ({admin['email']})",
+                    )
+                    st.success(
+                        f"✅ Password updated for **{target_u['email']}**! You can now sign in with the new password."
+                    )
+                except ValueError as exc:
+                    st.error(str(exc))
+
+        # Bottom Section: Complete Employee & Password Audit History
+        st.divider()
+        st.markdown("#### 📜 Employee Creation, KYC, Password Reset & Deletion History (IST)")
         audit_logs = db.list_staff_audit_logs()
         if audit_logs:
             st.dataframe(
