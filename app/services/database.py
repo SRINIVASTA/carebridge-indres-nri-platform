@@ -440,6 +440,40 @@ class DatabaseService:
             details=f"Password reset for {target['role']} ({target['email']})",
         )
         return target
+
+    def self_reset_password(self, email: str, phone: str, new_password: str) -> Dict[str, Any]:
+        """Allow a user to reset their own password by verifying registered email and phone."""
+        clean_email = email.strip().lower()
+        clean_phone = "".join(ch for ch in phone.strip() if ch.isdigit() or ch == "+")
+        clean_pw = new_password.strip()
+
+        if len(clean_pw) < 6:
+            raise ValueError("New password must be at least 6 characters long.")
+
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM users WHERE email = ?", (clean_email,)).fetchone()
+            if not row:
+                raise ValueError("No account found with this email address.")
+
+            target = dict(row)
+            stored_phone = "".join(ch for ch in str(target.get("phone", "")) if ch.isdigit() or ch == "+")
+            if not clean_phone or clean_phone != stored_phone:
+                raise ValueError("Registered mobile number does not match our records.")
+
+            hashed_pw = self._hash_password(clean_pw)
+            conn.execute(
+                "UPDATE users SET password_hash = ? WHERE id = ?",
+                (hashed_pw, target["id"]),
+            )
+
+        self.log_staff_action(
+            action="SELF_PASSWORD_RESET",
+            target_user=target,
+            performed_by=f"Self-Service ({clean_email})",
+            details="User reset own password via Email + Mobile verification",
+        )
+        return target
+
     def list_all_users(self, role: Optional[str] = None) -> List[Dict[str, Any]]:
         """Return all registered users with IST registration timestamps."""
         with self._get_conn() as conn:
