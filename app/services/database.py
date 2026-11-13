@@ -298,7 +298,7 @@ class DatabaseService:
         clean_email = email.strip().lower()
         channels = preferred_channels or ["EMAIL", "WHATSAPP"]
         user_id = f"usr-{uuid.uuid4().hex[:8]}"
-        hashed_pw = self._hash_password(password)
+        self._hash_password(password.strip())
         created_ts = now_ist_str()
 
         resolved_customer_type = customer_type or (
