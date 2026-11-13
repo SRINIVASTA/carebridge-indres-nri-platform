@@ -116,14 +116,22 @@ with st.form("field_visit_report_form"):
         value=float(task.get("out_of_pocket_inr", 0.0)),
         step=50.0,
     )
+    no_bill_voucher = st.checkbox(
+        "🧾 Unbilled Petty Cash / Auto / Parking Expense (No printed vendor receipt available — max ₹500)",
+        value=False,
+    )
+    unbilled_reason = st.text_input(
+        "Expense Breakdown / Route Note (Required if unbilled)",
+        placeholder="e.g., To & fro local auto fare from home to bank branch (₹200)",
+    )
     receipt_file = st.file_uploader(
-        "Upload Mandatory Vendor Bill / Pharmacy / Wheelchair Cab Receipt (PDF/JPG/PNG)",
+        "Upload Printed Vendor Bill / Pharmacy / Cab Receipt (PDF/JPG/PNG)",
         type=["pdf", "jpg", "jpeg", "png"],
     )
     visit_notes = st.text_area(
         "Care Manager Field Observations",
         value=task.get("completion_notes")
-        or "Beneficiary is comfortable and stable. Mobility transfer assisted safely; vitals logged.",
+        or "Beneficiary picked up from home, assisted safely, and dropped back home.",
     )
     auto_dispatch = st.checkbox(
         "Auto-generate Visit Report + Itemized Invoice PDFs and send to Member's available channels",
@@ -134,8 +142,17 @@ with st.form("field_visit_report_form"):
 
     if submitted:
         if oop_inr > 0 and not receipt_file and not task.get("receipt_verified"):
-            st.error("Receipt photo/PDF is mandatory whenever out-of-pocket expenses are greater than ₹0.")
-            st.stop()
+            if not no_bill_voucher:
+                st.error(
+                    "Please upload a receipt photo/PDF, OR check 'Unbilled Petty Cash / Auto Expense' if no bill was issued."
+                )
+                st.stop()
+            if oop_inr > 500:
+                st.error("Unbilled cash expenses above ₹500 require a printed receipt or UPI screenshot.")
+                st.stop()
+            if not unbilled_reason.strip():
+                st.error("Please enter the route/expense breakdown note for unbilled auto/cash expenses.")
+                st.stop()
 
         checkin_ts = now_ist_str()
         receipt_path = task.get("receipt_url")
