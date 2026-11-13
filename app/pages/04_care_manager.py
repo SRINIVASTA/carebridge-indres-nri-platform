@@ -91,7 +91,9 @@ if task.get("requires_two_person_lift"):
 if task.get("third_party_vendor_type"):
     mobility_alerts.append(f"🩺 **Coordinate Specialist/Vendor:** {task['third_party_vendor_type']}")
 if parent.get("mobility_level") in ("WHEELCHAIR_REQUIRED", "BEDRIDDEN", "POST_SURGERY_RECOVERY"):
-    mobility_alerts.append(f"⚠️ **Recipient Mobility Level:** `{mobility_badge}` — Carry transfer belt / check ramp access")
+    mobility_alerts.append(
+        f"⚠️ **Recipient Mobility Level:** `{mobility_badge}` — Carry transfer belt / check ramp access"
+    )
 
 if mobility_alerts:
     st.warning(" | ".join(mobility_alerts))
@@ -117,12 +119,12 @@ with st.form("field_visit_report_form"):
         step=50.0,
     )
     no_bill_voucher = st.checkbox(
-        "🧾 Unbilled Petty Cash / Auto / Parking Expense (No printed vendor receipt available — max ₹500)",
+        "🧾 Unbilled Petty Cash / Auto / Parking Expense (No printed vendor bill available — max ₹500)",
         value=False,
     )
     unbilled_reason = st.text_input(
         "Expense Breakdown / Route Note (Required if unbilled)",
-        placeholder="e.g., To & fro local auto fare from home to bank branch (₹200)",
+        placeholder="e.g., To & fro local auto fare from home to bank/hospital and back (₹200)",
     )
     receipt_file = st.file_uploader(
         "Upload Printed Vendor Bill / Pharmacy / Cab Receipt (PDF/JPG/PNG)",
@@ -131,7 +133,7 @@ with st.form("field_visit_report_form"):
     visit_notes = st.text_area(
         "Care Manager Field Observations",
         value=task.get("completion_notes")
-        or "Beneficiary picked up from home, assisted safely, and dropped back home.",
+        or "Beneficiary picked up from home, assisted safely, and dropped back home. Vitals logged.",
     )
     auto_dispatch = st.checkbox(
         "Auto-generate Visit Report + Itemized Invoice PDFs and send to Member's available channels",
@@ -139,7 +141,6 @@ with st.form("field_visit_report_form"):
     )
 
     submitted = st.form_submit_button("✅ Complete Visit, Archive PDFs & Notify Member", type="primary")
-
     if submitted:
         if oop_inr > 0 and not receipt_file and not task.get("receipt_verified"):
             if not no_bill_voucher:
@@ -156,6 +157,8 @@ with st.form("field_visit_report_form"):
 
         checkin_ts = now_ist_str()
         receipt_path = task.get("receipt_url")
+        final_notes = visit_notes.strip()
+
         if receipt_file:
             if not is_allowed_file(receipt_file.name):
                 st.error("Invalid receipt file type.")
@@ -168,6 +171,7 @@ with st.form("field_visit_report_form"):
             )
         elif oop_inr > 0 and no_bill_voucher:
             receipt_path = f"UNBILLED_VOUCHER: {unbilled_reason.strip()}"
+            final_notes = f"{final_notes} | [Unbilled Auto/Cash: {unbilled_reason.strip()} — ₹{oop_inr:,.0f}]"
 
         # Log vitals with full IST Date & Time
         vitals_payload = {
@@ -178,7 +182,7 @@ with st.form("field_visit_report_form"):
             "blood_sugar_mgdl": sugar,
             "pulse_bpm": pulse,
             "spo2_percent": spo2,
-            "notes": visit_notes,
+            "notes": final_notes,
             "recorded_at": checkin_ts,
         }
         db.log_vitals(vitals_payload)
@@ -194,7 +198,7 @@ with st.form("field_visit_report_form"):
             out_of_pocket_inr=oop_inr,
             receipt_url=receipt_path,
             receipt_verified=bool(receipt_file or task.get("receipt_verified")),
-            completion_notes=visit_notes,
+            completion_notes=final_notes,
         )
 
         # Generate Visit Summary PDF & Invoice PDF with IST Date & Time
@@ -206,7 +210,7 @@ with st.form("field_visit_report_form"):
             checkin_time=checkin_ts,
             gps_coords=f"{gps_lat}, {gps_lng}",
             vitals=vitals_payload,
-            notes=visit_notes,
+            notes=final_notes,
         )
 
         invoice_num = f"CB-INV-{task['id'].replace('TSK-', '')}"
@@ -214,9 +218,13 @@ with st.form("field_visit_report_form"):
             {"description": task["title"], "category": task["category"], "amount_inr": svc_fee}
         ]
         if oop_inr > 0:
+            if receipt_file:
+                oop_desc = "Verified Vendor / Pharmacy / Cab Actuals (Receipt Attached, 0% Markup)"
+            else:
+                oop_desc = f"Auto / Petty Cash Actuals — Unbilled ({unbilled_reason.strip()})"
             line_items.append(
                 {
-                    "description": "Verified Vendor / Pharmacy / Wheelchair Cab Actuals (0% Markup)",
+                    "description": oop_desc,
                     "category": "ACTUALS",
                     "amount_inr": oop_inr,
                 }
