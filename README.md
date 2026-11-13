@@ -86,12 +86,14 @@ This platform demonstrates a four-tier Role-Based Access Control (RBAC) onboardi
 * Operations Admin & Care Manager (ADMIN / CARE_MANAGER): Provisioned exclusively by the System Admin inside Admin Operations Console -> Manage Employees & History.
 * NRI Family Customer (NRI): Self-registered via the public Create Customer Account (Sign Up) tab.
 
-| Role | Name | Email (Login ID) | Password | Creation Method |
-| :--- | :--- | :--- | :--- | :--- |
-| SYSTEM_ADMIN | Master System Admin | sysadmin@carebridge.in | SysAdmin@123 | Pre-seeded on startup |
-| ADMIN | Priya Nair | priya.admin@carebridge.in | AdminOps@123 | Created by System Admin |
-| CARE_MANAGER | Suresh Naidu | suresh.naidu@carebridge.in | Sahayak@123 | Created by System Admin |
-| NRI | Karthik Reddy | karthik.reddy@example.com | Client@123 | Public Customer Sign Up |
+
+| Role | Customer Type | Name | Email (Login ID) | Phone / WhatsApp | Password | Creation Method |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `SYSTEM_ADMIN` | `SYSTEM` | Master System Admin | `sysadmin@carebridge.in` | `+919848000001` | `SysAdmin@123` | Pre-seeded on startup |
+| `ADMIN` | `STAFF` | Priya Nair | `priya.admin@carebridge.in` | `+919849054321` | `AdminOps@123` | Created by System Admin |
+| `CARE_MANAGER` | `STAFF` | Suresh Naidu | `suresh.naidu@carebridge.in` | `+919848012345` | `Sahayak@123` | Created by System Admin |
+| `INDRES_NRI` | `NRI_SPONSOR` | Karthik Reddy | `karthik.reddy@example.com` | `+14155550199` | `Client@123` | Public Customer Sign Up (NRI Sponsor) |
+| `INDRES_NRI` | `INDIAN_RESIDENT` | Smt. Lakshmi Narayana Rao | `lakshmi.rao@example.com` | `+919848022334` | `Resident@123` | Public Customer Sign Up (Indian Resident) |
 
 Note: On Streamlit Community Cloud, restarting or redeploying the container resets ephemeral SQLite storage (carebridge.db) back to the default SYSTEM_ADMIN account.
 
