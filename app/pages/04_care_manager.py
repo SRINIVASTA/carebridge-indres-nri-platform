@@ -1,7 +1,7 @@
 from pathlib import Path
 import sys
 
-ROOT_DIR = Path(__file__).resolve().parents
+ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
@@ -27,12 +27,16 @@ st.caption(
     f"Police ID: `{user.get('police_clearance_id', 'VERIFIED')}`"
 )
 
-tasks = db.list_tasks("CARE_MANAGER", user["id"]) if user["role"] == "CARE_MANAGER" else db.list_tasks("ADMIN", user["id"])
+tasks = (
+    db.list_tasks("CARE_MANAGER", user["id"])
+    if user["role"] == "CARE_MANAGER"
+    else db.list_tasks("ADMIN", user["id"])
+)
 all_parents = [
     {**p, "id": p["parent_id"], "full_name": p["parent_name"]}
     for p in db.list_all_parents_with_nri()
 ]
-nri_recipient = DEMO_USERS["NRI"]
+all_users_by_id = {u["id"]: u for u in db.list_all_users()}
 
 if not tasks:
     st.info("No assigned field tasks right now.")
@@ -41,22 +45,61 @@ if not tasks:
 task_map = {f"{t['id']} — {t['title']} ({t['scheduled_at']}) [{t['status']}]": t for t in tasks}
 selected_label = st.selectbox("Select Assigned Visit / Task", list(task_map.keys()))
 task = task_map[selected_label]
+
 parent = next(
     (p for p in all_parents if p["id"] == task["parent_id"]),
-    {"id": task["parent_id"], "full_name": task.get("parent_name", "Parent"), "age": 70, "city": "India", "address": "Registered Address"},
+    {
+        "id": task["parent_id"],
+        "full_name": task.get("parent_name", "Care Recipient"),
+        "age": 70,
+        "city": "India",
+        "address": "Registered Address",
+        "mobility_level": "INDEPENDENT",
+        "home_access_notes": "",
+    },
 )
+
+# Resolve actual customer recipient (Indian Resident or NRI Sponsor)
+customer_recipient = (
+    all_users_by_id.get(task.get("nri_user_id"))
+    or {
+        "id": task.get("nri_user_id", DEMO_USERS["INDRES_NRI"]["id"]),
+        "full_name": parent.get("nri_name", DEMO_USERS["INDRES_NRI"]["full_name"]),
+        "email": parent.get("nri_email", DEMO_USERS["INDRES_NRI"]["email"]),
+        "phone": parent.get("nri_phone", DEMO_USERS["INDRES_NRI"]["phone"]),
+        "preferred_currency": "INR" if parent.get("customer_type") == "INDIAN_RESIDENT" else "USD",
+        "preferred_channels": ["EMAIL", "WHATSAPP"],
+    }
+)
+
+mobility_badge = str(parent.get("mobility_level", "INDEPENDENT")).replace("_", " ").title()
+access_notes = parent.get("home_access_notes") or "Standard access"
 
 st.info(
     f"**Beneficiary:** {parent['full_name']} ({parent['age']} yrs) | "
-    f"**Address:** {parent['address']} | "
-    f"**Instructions:** {task.get('instructions', 'Standard check-in')}"
+    f"**Mobility Status:** `{mobility_badge}`\n\n"
+    f"**Address:** {parent['address']} | **Home Access Notes:** {access_notes}\n\n"
+    f"**Task Instructions:** {task.get('instructions', 'Standard check-in')}"
 )
 
+# High-Visibility Mobility & Vendor Alerts for Ground Sahayak
+mobility_alerts = []
+if task.get("requires_wheelchair_cab"):
+    mobility_alerts.append("♿ **Wheelchair-Accessible Cab / Ramp Vehicle Required**")
+if task.get("requires_two_person_lift"):
+    mobility_alerts.append("🧑‍🤝‍🧑 **2-Person Lift / Transfer Assistance Required**")
+if task.get("third_party_vendor_type"):
+    mobility_alerts.append(f"🩺 **Coordinate Specialist/Vendor:** {task['third_party_vendor_type']}")
+if parent.get("mobility_level") in ("WHEELCHAIR_REQUIRED", "BEDRIDDEN", "POST_SURGERY_RECOVERY"):
+    mobility_alerts.append(f"⚠️ **Recipient Mobility Level:** `{mobility_badge}` — Carry transfer belt / check ramp access")
+
+if mobility_alerts:
+    st.warning(" | ".join(mobility_alerts))
 with st.form("field_visit_report_form"):
     st.subheader("1. Live GPS Check-In & Vitals Log")
     g1, g2 = st.columns(2)
-    gps_lat = g1.number_input("GPS Latitude", value=17.7412, format="%.4f")
-    gps_lng = g2.number_input("GPS Longitude", value=83.3341, format="%.4f")
+    gps_lat = g1.number_input("GPS Latitude", value=17.3850, format="%.4f")
+    gps_lng = g2.number_input("GPS Longitude", value=78.4867, format="%.4f")
 
     v1, v2, v3, v4 = st.columns(4)
     sys_bp = v1.number_input("Systolic BP (mmHg)", min_value=60, max_value=250, value=124)
@@ -67,26 +110,27 @@ with st.form("field_visit_report_form"):
 
     st.subheader("2. Out-of-Pocket Expense Receipt & Visit Summary")
     oop_inr = st.number_input(
-        "Out-of-Pocket Expense Paid (INR — Medicines, Lab, Auto/Cab)",
+        "Out-of-Pocket Expense Paid (INR — Medicines, Lab, Wheelchair Cab/Auto)",
         min_value=0.0,
         max_value=50000.0,
         value=float(task.get("out_of_pocket_inr", 0.0)),
         step=50.0,
     )
     receipt_file = st.file_uploader(
-        "Upload Mandatory Vendor Bill / Pharmacy Receipt (PDF/JPG/PNG)",
+        "Upload Mandatory Vendor Bill / Pharmacy / Wheelchair Cab Receipt (PDF/JPG/PNG)",
         type=["pdf", "jpg", "jpeg", "png"],
     )
     visit_notes = st.text_area(
         "Care Manager Field Observations",
-        value=task.get("completion_notes") or "Parent is cheerful and active. Vitals logged and medicines handed over.",
+        value=task.get("completion_notes")
+        or "Beneficiary is comfortable and stable. Mobility transfer assisted safely; vitals logged.",
     )
     auto_dispatch = st.checkbox(
-        "Auto-generate Visit Report + Itemized Invoice PDFs and send to NRI's available channels",
+        "Auto-generate Visit Report + Itemized Invoice PDFs and send to Member's available channels",
         value=True,
     )
 
-    submitted = st.form_submit_button("✅ Complete Visit, Archive PDFs & Notify NRI Family", type="primary")
+    submitted = st.form_submit_button("✅ Complete Visit, Archive PDFs & Notify Member", type="primary")
 
     if submitted:
         if oop_inr > 0 and not receipt_file and not task.get("receipt_verified"):
@@ -94,7 +138,7 @@ with st.form("field_visit_report_form"):
             st.stop()
 
         checkin_ts = now_ist_str()
-        receipt_path = None
+        receipt_path = task.get("receipt_url")
         if receipt_file:
             if not is_allowed_file(receipt_file.name):
                 st.error("Invalid receipt file type.")
@@ -120,18 +164,18 @@ with st.form("field_visit_report_form"):
         }
         db.log_vitals(vitals_payload)
 
-        # Update task state
-        task.update(
-            {
-                "status": "COMPLETED",
-                "gps_lat": gps_lat,
-                "gps_lng": gps_lng,
-                "checkin_time": checkin_ts,
-                "out_of_pocket_inr": oop_inr,
-                "receipt_url": receipt_path,
-                "receipt_verified": True if receipt_file else False,
-                "completion_notes": visit_notes,
-            }
+        # Persist task completion in SQLite3
+        svc_fee = float(task.get("service_fee_inr", 1200.0))
+        db.update_task_completion(
+            task_id=task["id"],
+            status="COMPLETED",
+            gps_lat=gps_lat,
+            gps_lng=gps_lng,
+            service_fee_inr=svc_fee,
+            out_of_pocket_inr=oop_inr,
+            receipt_url=receipt_path,
+            receipt_verified=bool(receipt_file or task.get("receipt_verified")),
+            completion_notes=visit_notes,
         )
 
         # Generate Visit Summary PDF & Invoice PDF with IST Date & Time
@@ -146,7 +190,6 @@ with st.form("field_visit_report_form"):
             notes=visit_notes,
         )
 
-        svc_fee = float(task.get("service_fee_inr", 1200.0))
         invoice_num = f"CB-INV-{task['id'].replace('TSK-', '')}"
         line_items = [
             {"description": task["title"], "category": task["category"], "amount_inr": svc_fee}
@@ -154,41 +197,41 @@ with st.form("field_visit_report_form"):
         if oop_inr > 0:
             line_items.append(
                 {
-                    "description": "Verified Vendor Receipt Actuals (0% Markup)",
+                    "description": "Verified Vendor / Pharmacy / Wheelchair Cab Actuals (0% Markup)",
                     "category": "ACTUALS",
                     "amount_inr": oop_inr,
                 }
             )
 
-        nri_curr = nri_recipient.get("preferred_currency", "USD")
+        cust_curr = customer_recipient.get("preferred_currency", "INR")
         invoice_pdf = generate_invoice_pdf(
             invoice_number=invoice_num,
-            nri_name=nri_recipient["full_name"],
-            nri_email=nri_recipient["email"],
+            nri_name=customer_recipient["full_name"],
+            nri_email=customer_recipient["email"],
             parent_name=parent["full_name"],
             parent_city=parent["city"],
-            currency=nri_curr,
+            currency=cust_curr,
             line_items=line_items,
             service_fee_inr=svc_fee,
             out_of_pocket_inr=oop_inr,
             issued_at=checkin_ts,
         )
 
-        visit_path = storage.upload_file(visit_pdf, "visit_reports", f"{task['id']}_report.pdf")
+        storage.upload_file(visit_pdf, "visit_reports", f"{task['id']}_report.pdf")
         inv_path = storage.upload_file(invoice_pdf, "invoices", f"{invoice_num}.pdf")
         totals = calculate_invoice_totals(svc_fee, oop_inr)
 
         db.save_invoice(
             {
                 "invoice_number": invoice_num,
-                "nri_user_id": task.get("nri_user_id", nri_recipient["id"]),
+                "nri_user_id": task.get("nri_user_id", customer_recipient["id"]),
                 "task_id": task["id"],
-                "currency": nri_curr,
+                "currency": cust_curr,
                 "service_fee_inr": svc_fee,
                 "out_of_pocket_inr": oop_inr,
                 "gst_inr": totals["gst_inr"],
                 "total_inr": totals["total_inr"],
-                "total_converted": convert_from_inr(totals["total_inr"], nri_curr),
+                "total_converted": convert_from_inr(totals["total_inr"], cust_curr),
                 "pdf_storage_path": inv_path,
                 "status": "ISSUED",
                 "created_at": checkin_ts,
@@ -202,7 +245,7 @@ with st.form("field_visit_report_form"):
         if auto_dispatch:
             signed_inv_url = storage.get_signed_download_url(inv_path or "")
             sent_channels = notifier.dispatch_to_available_channels(
-                recipient=nri_recipient,
+                recipient=customer_recipient,
                 subject=f"CareBridge Visit Report & Invoice ({invoice_num}) — {parent['full_name']}",
                 summary_text=(
                     f"Visit '{task['title']}' completed at {checkin_ts}. "
