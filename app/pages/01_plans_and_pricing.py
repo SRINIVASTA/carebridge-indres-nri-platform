@@ -7,71 +7,40 @@ if str(ROOT_DIR) not in sys.path:
 
 import streamlit as st
 from app.auth.session_manager import init_session_state
+from app.services.database import DatabaseService
 from app.utils.currency import format_currency
 
 init_session_state()
+db = DatabaseService()
 
-curr = st.session_state.get("currency", "USD")
+user = st.session_state.get("current_user") or {}
+is_ind_res = user.get("customer_type") == "INDIAN_RESIDENT"
+curr = st.session_state.get("currency", "INR" if is_ind_res else "USD")
 
 st.title("Plans & Transparent Rate Card")
-st.markdown(
-    "All plans include **0% markup on out-of-pocket expenses** (medicines, lab bills, cab fares), "
-    "backed by itemized PDF invoices and photo receipts."
-)
+st.markdown("All plans include **0% markup on out-of-pocket expenses**, backed by itemized PDF invoices and photo receipts.")
 
 # Monthly Subscription Tiers
 st.subheader("Monthly Care Subscriptions")
 plans = [
-    {
-        "tier": "ESSENTIAL",
-        "name": "Essential Errands & Check-Ins",
-        "min_inr": 3500,
-        "max_inr": 6000,
-        "highlights": [
-            "2 planned home visits per month",
-            "Utility bill payments & banking help",
-            "Grocery/pharmacy delivery coordination",
-            "GPS check-in & WhatsApp/Email photo summary",
-        ],
-    },
-    {
-        "tier": "COMPLETE",
-        "name": "Complete Medical + Errands",
-        "min_inr": 7500,
-        "max_inr": 12500,
-        "highlights": [
-            "4 weekly home visits (vitals: BP, sugar, SpO2)",
-            "Doctor appointment & hospital escorting",
-            "Monthly medicine refills & digital Health Vault",
-            "24/7 Emergency SOS hospital coordination",
-        ],
-    },
-    {
-        "tier": "COUPLE",
-        "name": "Comprehensive / Couple Care",
-        "min_inr": 14000,
-        "max_inr": 22000,
-        "highlights": [
-            "Weekly visits covering BOTH parents",
-            "Priority hospital escorting & lab home collection",
-            "Quarterly locked property / flat inspection",
-            "Dedicated Senior Care Manager (Sahayak)",
-        ],
-    },
+    ("ESSENTIAL", "Essential Errands & Check-Ins", 3500, 6000, ["2 planned home visits/month", "Utility bills & doorstep banking", "Grocery & pharmacy refills", "GPS check-in & WhatsApp/Email update"]),
+    ("RESIDENT_MOBILITY_CARE", "♿ Resident Mobility & Homebound Care", 9000, 15000, ["6 assisted visits/month (bedridden/non-walking)", "Wheelchair cab & 2-person transfer", "In-home lab, physio & medicine refills", "24/7 Emergency SOS & hospital triage"]),
+    ("COMPLETE", "Complete Medical + Errands", 7500, 12500, ["4 weekly home visits (vitals)", "Doctor appointment & hospital escort", "Monthly medicine refills & Health Vault", "24/7 Emergency SOS coordination"]),
+    ("COUPLE", "Comprehensive / Couple Care", 14000, 22000, ["Weekly visits for both parents/spouses", "Priority hospital escort & lab collection", "Quarterly property inspection", "Dedicated Senior Care Manager (Sahayak)"]),
 ]
 
-cols = st.columns(3)
-for col, plan in zip(cols, plans):
-    with col:
-        st.markdown(f"### {plan['name']}")
-        price_range = f"{format_currency(plan['min_inr'], curr)} – {format_currency(plan['max_inr'], curr)} / mo"
-        st.info(f"**{price_range}**")
-        for item in plan["highlights"]:
+cols = st.columns(2)
+for idx, (tier, name, min_inr, max_inr, highlights) in enumerate(plans):
+    with cols[idx % 2], st.container(border=True):
+        st.markdown(f"### {name}")
+        st.info(f"**{format_currency(min_inr, curr)} – {format_currency(max_inr, curr)} / mo**")
+        for item in highlights:
             st.write(f"- {item}")
-        if st.button(f"Select {plan['tier']} Plan", key=f"sub_{plan['tier']}", use_container_width=True):
-            if st.session_state.get("authenticated"):
-                st.session_state["demo_wallet"]["plan_tier"] = plan["tier"]
-                st.success(f"Switched active subscription tier to **{plan['tier']}**!")
+        if st.button(f"Select {tier} Plan", key=f"sub_{tier}", use_container_width=True):
+            if st.session_state.get("authenticated") and user.get("id"):
+                db.update_wallet_plan(user["id"], tier)
+                st.session_state["demo_wallet"]["plan_tier"] = tier
+                st.success(f"Switched active subscription tier to **{tier}**!")
             else:
                 st.warning("Sign in from the Home page to activate this subscription.")
 
@@ -80,9 +49,11 @@ st.divider()
 # Pay-As-You-Go On-Demand Rates
 st.subheader("Pay-As-You-Go On-Demand Services")
 ondemand_services = [
-    ("Doctor / Hospital Visit Escort (up to 4 hrs)", 1000, 2500),
+    ("Wheelchair-Assisted Hospital / Doctor Escort (up to 4 hrs)", 1200, 2800),
+    ("In-Home Medical Support (Lab Sample, Physio / Nursing Setup)", 800, 1800),
     ("Routine Home Wellbeing & Vitals Check", 600, 1200),
-    ("Bank, Government, or Pension Life Certificate", 1000, 2000),
+    ("Doorstep Bank, Government, or Pension Life Certificate", 1000, 2000),
+    ("Assisted Social / Temple Outing (excl. wheelchair cab)", 1000, 2200),
     ("Airport Pickup / Drop Assistance (excl. cab/toll)", 1500, 3500),
     ("Property / Locked Flat Inspection with Video", 1500, 3000),
 ]
