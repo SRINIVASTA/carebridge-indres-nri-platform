@@ -2,6 +2,12 @@
 
 A cloud-ready financial and healthcare operations workstation built with Streamlit for Non-Resident Indians (NRIs) to manage geriatric medical monitoring, daily errands, 24/7 emergency support, itemized GST PDF invoicing, and property concierge services for aging parents in India.
 
+### ⭐ Show Your Support
+
+If you like the UI design, system architecture, or multi-role healthcare & GST billing workflow behind **CareBridge India**, please consider giving this repository a **Star ⭐** on GitHub! It helps showcase this work and motivates future builds.
+
+<img src="app/assets/desktop.png" width="100%" alt="CareBridge India Preview">
+
 
 ## 🏛️ System Architecture
 
